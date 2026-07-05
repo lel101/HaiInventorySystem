@@ -40,6 +40,12 @@ const app = express();
 const migrationsDir = path.join(process.cwd(), 'db', 'migrations');
 
 app.use(express.json({ limit: '10mb' }));
+app.use((req, _res, next) => {
+  if (!req.url.startsWith('/api/')) {
+    req.url = `/api${req.url.startsWith('/') ? '' : '/'}${req.url}`;
+  }
+  next();
+});
 
 const toNumber = (value: unknown): number => Number(value ?? 0);
 const toIsoString = (value: unknown): string => new Date(value as string | Date).toISOString();

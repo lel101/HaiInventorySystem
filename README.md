@@ -57,7 +57,7 @@ PORT=3001
 This project is configured for Vercel with [vercel.json](vercel.json):
 
 - Vite frontend builds to `dist`.
-- `/api/*` routes go to the Express API in [api/index.ts](api/index.ts).
+- `/api/*` routes go to the Express API in [api/[...path].ts](api/[...path].ts).
 - Browser refresh/deep links fall back to `index.html`.
 
 Use a hosted PostgreSQL database for production. Your local `localhost` PostgreSQL database will not be reachable from Vercel.
