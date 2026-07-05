@@ -51,3 +51,46 @@ Example Supabase local CLI connection:
 DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
 PORT=3001
 ```
+
+## Deploy to Vercel
+
+This project is configured for Vercel with [vercel.json](vercel.json):
+
+- Vite frontend builds to `dist`.
+- `/api/*` routes go to the Express API in [api/index.ts](api/index.ts).
+- Browser refresh/deep links fall back to `index.html`.
+
+Use a hosted PostgreSQL database for production. Your local `localhost` PostgreSQL database will not be reachable from Vercel.
+
+1. Create a Supabase project.
+2. Copy the Supabase PostgreSQL connection string.
+3. In Vercel, add an environment variable named `DATABASE_URL`.
+4. Run migrations against the Supabase database before using the app:
+
+```bash
+DATABASE_URL="your-supabase-postgres-connection-string" npm run db:migrate
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:DATABASE_URL="your-supabase-postgres-connection-string"
+npm run db:migrate
+```
+
+5. Deploy/import the Git repo in Vercel.
+
+Vercel settings:
+
+```text
+Framework Preset: Vite
+Build Command: npm run build
+Output Directory: dist
+```
+
+Default login after migration:
+
+```text
+Username: admin
+Password: P@ssw0rd
+```
