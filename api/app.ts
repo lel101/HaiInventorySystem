@@ -45,8 +45,14 @@ if (!databaseUrl) {
   console.warn('No PostgreSQL connection string is set. API database routes will fail until it is configured.');
 }
 
+const shouldUseSsl = (url?: string): boolean => {
+  if (!url) return false;
+  return !url.includes('localhost') && !url.includes('127.0.0.1');
+};
+
 const pool = new Pool({
   connectionString: databaseUrl,
+  ssl: shouldUseSsl(databaseUrl) ? { rejectUnauthorized: false } : false,
 });
 
 const app = express();

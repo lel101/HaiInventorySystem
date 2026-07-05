@@ -21,7 +21,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const migrationsDir = path.join(__dirname, '..', 'db', 'migrations');
 
-const pool = new Pool({ connectionString: databaseUrl });
+const shouldUseSsl = (url: string): boolean => !url.includes('localhost') && !url.includes('127.0.0.1');
+
+const pool = new Pool({
+  connectionString: databaseUrl,
+  ssl: shouldUseSsl(databaseUrl) ? { rejectUnauthorized: false } : false,
+});
 
 try {
   const files = (await readdir(migrationsDir))
