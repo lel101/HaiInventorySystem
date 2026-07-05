@@ -304,9 +304,7 @@ const stats = computed(() => {
 const handleDelete = (id: string) => {
   const item = props.products.find(p => p.id === id);
   if (!item) return;
-  if (window.confirm(`Are you sure you want to permanently delete SKU: ${item.sku} - ${item.name}?`)) {
-    emit('delete-product', id);
-  }
+  emit('delete-product', id);
 };
 </script>
 

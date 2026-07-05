@@ -116,9 +116,7 @@ const totalExpenseAmount = computed(() => {
 });
 
 const handleDelete = (id: string) => {
-  if (window.confirm('Are you sure you want to delete this expense record?')) {
-    emit('delete-expense', id);
-  }
+  emit('delete-expense', id);
 };
 </script>
 

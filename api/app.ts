@@ -5,7 +5,9 @@ import { readdir, readFile } from 'fs/promises';
 import path from 'path';
 import { Pool, PoolClient } from 'pg';
 import type {
+  AuthUser,
   Expense,
+  InvestorAccount,
   Partner,
   Product,
   ProfitDistributionRecord,
@@ -86,6 +88,10 @@ const toDateString = (value: unknown): string => {
   if (value instanceof Date) return value.toISOString().substring(0, 10);
   return String(value || '').substring(0, 10);
 };
+const toOptionalIsoString = (value: unknown): string | undefined => {
+  if (!value) return undefined;
+  return new Date(value as string | Date).toISOString();
+};
 
 const ensureSchema = async () => {
   const files = (await readdir(migrationsDir))
@@ -110,6 +116,13 @@ const verifyPassword = (password: string, storedHash: string): boolean => {
   return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 };
 
+const hashPassword = (password: string): string => {
+  const iterations = 100000;
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('hex');
+  return `pbkdf2_sha256$${iterations}$${salt}$${hash}`;
+};
+
 const getBearerToken = (authorization?: string): string | null => {
   if (!authorization?.startsWith('Bearer ')) return null;
   return authorization.substring('Bearer '.length).trim() || null;
@@ -125,18 +138,35 @@ const createSession = async (userId: string): Promise<string> => {
   return token;
 };
 
-const isValidSession = async (token: string | null): Promise<boolean> => {
-  if (!token) return false;
+const getSessionUser = async (token: string | null): Promise<AuthUser | null> => {
+  if (!token) return null;
 
   const result = await pool.query(
-    `select token from admin_sessions
-     where token = $1 and expires_at > now()
+    `select u.username, u.role, u.partner_id
+     from admin_sessions s
+     join admin_users u on u.id = s.user_id
+     where s.token = $1 and s.expires_at > now() and u.deleted_at is null
      limit 1`,
     [token]
   );
 
-  return result.rowCount > 0;
+  const user = result.rows[0];
+  return user ? { username: user.username, role: user.role, partnerId: user.partner_id || undefined } : null;
 };
+
+const requireAdmin = async (authorization: string | undefined): Promise<AuthUser | null> => {
+  const user = await getSessionUser(getBearerToken(authorization));
+  return user?.role === 'admin' ? user : null;
+};
+
+const mapInvestorAccount = (row: any): InvestorAccount => ({
+  id: row.id,
+  partnerId: row.partner_id,
+  username: row.username,
+  password: row.credential_password || '',
+  updatedAt: toIsoString(row.updated_at),
+  deletedAt: toOptionalIsoString(row.deleted_at),
+});
 
 const loadRelationalState = async (client: PoolClient): Promise<PersistedAppState> => {
   const [
@@ -208,6 +238,7 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
       image: row.image,
       status: row.status,
       createdAt: toIsoString(row.created_at),
+      deletedAt: toOptionalIsoString(row.deleted_at),
     })),
     transactions: transactionsResult.rows.map((row) => ({
       id: row.id,
@@ -230,11 +261,13 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
       date: toDateString(row.date),
       receiptImage: row.receipt_image || undefined,
       createdAt: toIsoString(row.created_at),
+      deletedAt: toOptionalIsoString(row.deleted_at),
     })),
     partners: partnersResult.rows.map((row) => ({
       id: row.id,
       name: row.name,
       sharePercentage: toNumber(row.share_percentage),
+      deletedAt: toOptionalIsoString(row.deleted_at),
     })),
     distributions: distributionsResult.rows.map((row) => ({
       id: row.id,
@@ -278,8 +311,8 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
       await client.query(
         `insert into products (
           id, sku, barcode, name, description, category, brand, supplier, cost_price,
-          selling_price, current_stock, minimum_stock, image, status, created_at
-        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          selling_price, current_stock, minimum_stock, image, status, created_at, deleted_at
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           product.id,
           product.sku,
@@ -296,6 +329,7 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
           product.image || '',
           product.status,
           product.createdAt,
+          product.deletedAt || null,
         ]
       );
     }
@@ -362,8 +396,8 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
     for (const expense of state.expenses || []) {
       await client.query(
         `insert into expenses (
-          id, category, amount, description, date, receipt_image, created_at
-        ) values ($1, $2, $3, $4, $5, $6, $7)`,
+          id, category, amount, description, date, receipt_image, created_at, deleted_at
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           expense.id,
           expense.category,
@@ -372,14 +406,15 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
           expense.date,
           expense.receiptImage || null,
           expense.createdAt,
+          expense.deletedAt || null,
         ]
       );
     }
 
     for (const partner of state.partners || []) {
       await client.query(
-        'insert into partners (id, name, share_percentage) values ($1, $2, $3)',
-        [partner.id, partner.name, partner.sharePercentage]
+        'insert into partners (id, name, share_percentage, deleted_at) values ($1, $2, $3, $4)',
+        [partner.id, partner.name, partner.sharePercentage, partner.deletedAt || null]
       );
     }
 
@@ -446,7 +481,7 @@ app.post('/api/auth/login', async (req, res) => {
     const password = String(req.body?.password || '');
 
     const result = await pool.query(
-      'select id, password_hash from admin_users where username = $1 limit 1',
+      'select id, username, password_hash, role, partner_id from admin_users where username = $1 and deleted_at is null limit 1',
       [username]
     );
     const user = result.rows[0];
@@ -457,9 +492,131 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const token = await createSession(user.id);
-    res.json({ token });
+    res.json({ token, user: { username: user.username, role: user.role, partnerId: user.partner_id || undefined } });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to login' });
+  }
+});
+
+app.get('/api/investor-accounts', async (req, res) => {
+  try {
+    await ensureSchema();
+    const user = await requireAdmin(req.headers.authorization);
+    if (!user) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const result = await pool.query(
+      `select id, username, partner_id, credential_password, updated_at, deleted_at
+       from admin_users
+       where role = 'investor' and partner_id is not null and deleted_at is null
+       order by username asc`
+    );
+
+    res.json({ accounts: result.rows.map(mapInvestorAccount) });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to load investor accounts' });
+  }
+});
+
+app.post('/api/investor-accounts', async (req, res) => {
+  try {
+    await ensureSchema();
+    const user = await requireAdmin(req.headers.authorization);
+    if (!user) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const partnerId = String(req.body?.partnerId || '').trim();
+    const username = String(req.body?.username || '').trim();
+    const password = String(req.body?.password || '');
+
+    if (!partnerId || !username || !password) {
+      res.status(400).json({ error: 'Partner, username, and password are required' });
+      return;
+    }
+
+    if (password.length < 4) {
+      res.status(400).json({ error: 'Password must be at least 4 characters' });
+      return;
+    }
+
+    const usernameOwner = await pool.query(
+      `select id, partner_id, role, deleted_at from admin_users
+       where lower(username) = lower($1)
+       limit 1`,
+      [username]
+    );
+    const existingUsername = usernameOwner.rows[0];
+
+    if (existingUsername && !existingUsername.deleted_at && existingUsername.partner_id !== partnerId) {
+      res.status(409).json({ error: 'Username is already used by another account' });
+      return;
+    }
+
+    const existing = await pool.query(
+      `select id from admin_users
+       where role = 'investor' and partner_id = $1
+       limit 1`,
+      [partnerId]
+    );
+
+    const passwordHash = hashPassword(password);
+    let accountResult;
+
+    const recycledDeletedInvestor = existingUsername?.deleted_at && existingUsername.role === 'investor'
+      ? existingUsername
+      : null;
+
+    if (existing.rowCount || recycledDeletedInvestor) {
+      accountResult = await pool.query(
+        `update admin_users
+         set username = $1,
+             password_hash = $2,
+             partner_id = $3,
+             credential_password = $4,
+             deleted_at = null,
+             updated_at = now()
+         where id = $4
+         returning id, username, partner_id, credential_password, updated_at, deleted_at`,
+        [username, passwordHash, partnerId, password, existing.rows[0]?.id || recycledDeletedInvestor.id]
+      );
+    } else {
+      accountResult = await pool.query(
+        `insert into admin_users (id, username, password_hash, role, partner_id, credential_password, created_at, updated_at)
+         values ($1, $2, $3, 'investor', $4, $5, now(), now())
+         returning id, username, partner_id, credential_password, updated_at, deleted_at`,
+        [`investor-${partnerId}`, username, passwordHash, partnerId, password]
+      );
+    }
+
+    res.json({ account: mapInvestorAccount(accountResult.rows[0]) });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to save investor account' });
+  }
+});
+
+app.delete('/api/investor-accounts/:partnerId', async (req, res) => {
+  try {
+    await ensureSchema();
+    const user = await requireAdmin(req.headers.authorization);
+    if (!user) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    await pool.query(
+      `update admin_users
+       set deleted_at = coalesce(deleted_at, now()),
+           updated_at = now()
+       where role = 'investor' and partner_id = $1`,
+      [req.params.partnerId]
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to delete investor account' });
   }
 });
 
@@ -467,7 +624,8 @@ app.get('/api/auth/session', async (req, res) => {
   try {
     await ensureSchema();
     const token = getBearerToken(req.headers.authorization);
-    res.json({ authenticated: await isValidSession(token) });
+    const user = await getSessionUser(token);
+    res.json({ authenticated: !!user, user });
   } catch (error) {
     res.status(500).json({ authenticated: false, error: error instanceof Error ? error.message : 'Failed to check session' });
   }
@@ -490,7 +648,8 @@ app.get('/api/state', async (req, res) => {
   const client = await pool.connect();
   try {
     await ensureSchema();
-    if (!await isValidSession(getBearerToken(req.headers.authorization))) {
+    const user = await getSessionUser(getBearerToken(req.headers.authorization));
+    if (!user) {
       res.status(401).json({ error: 'Authentication required' });
       return;
     }
@@ -508,8 +667,13 @@ app.put('/api/state', async (req, res) => {
   const client = await pool.connect();
   try {
     await ensureSchema();
-    if (!await isValidSession(getBearerToken(req.headers.authorization))) {
+    const user = await getSessionUser(getBearerToken(req.headers.authorization));
+    if (!user) {
       res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    if (user.role !== 'admin') {
+      res.status(403).json({ error: 'Investor accounts are view-only' });
       return;
     }
 
