@@ -62,15 +62,15 @@ const darkMode = ref<boolean>(false);
 const toasts = ref<ToastMessage[]>([]);
 const currentTime = ref<string>('');
 const stateLoaded = ref<boolean>(false);
+const authReady = ref<boolean>(false);
 const isAuthenticated = ref<boolean>(false);
 const loginUsername = ref<string>('');
 const loginPassword = ref<string>('');
 const loginError = ref<string>('');
+const loginLoading = ref<boolean>(false);
 
 let timeInterval: any = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
-const AUTH_USERNAME = 'admin';
-const AUTH_PASSWORD = 'P@ssw0rd';
 
 const getPersistedState = (): PersistedAppState => ({
   products: products.value,
@@ -281,10 +281,42 @@ const updateTime = () => {
   });
 };
 
-onMounted(async () => {
-  isAuthenticated.value = localStorage.getItem('hai_auth_session') === 'true';
+const initializeAuthenticatedState = async () => {
   await loadState();
   stateLoaded.value = true;
+};
+
+const restoreAuthSession = async () => {
+  const token = localStorage.getItem('hai_auth_token');
+  if (!token) return;
+
+  try {
+    const response = await fetch('/api/auth/session', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const payload = await response.json();
+
+    if (response.ok && payload.authenticated) {
+      isAuthenticated.value = true;
+      await initializeAuthenticatedState();
+      return;
+    }
+  } catch (error) {
+    console.warn('Login session check failed.', error);
+  }
+
+  localStorage.removeItem('hai_auth_token');
+};
+
+onMounted(async () => {
+  try {
+    await restoreAuthSession();
+  } finally {
+    authReady.value = true;
+  }
+
   updateTime();
   timeInterval = setInterval(updateTime, 1000);
 });
@@ -307,23 +339,55 @@ const removeToast = (id: string) => {
   toasts.value = toasts.value.filter(t => t.id !== id);
 };
 
-const handleLogin = () => {
-  if (loginUsername.value === AUTH_USERNAME && loginPassword.value === AUTH_PASSWORD) {
-    isAuthenticated.value = true;
-    loginError.value = '';
-    loginPassword.value = '';
-    localStorage.setItem('hai_auth_session', 'true');
-    return;
-  }
+const handleLogin = async () => {
+  loginLoading.value = true;
+  loginError.value = '';
 
-  loginError.value = 'Invalid username or password.';
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        username: loginUsername.value,
+        password: loginPassword.value,
+      }),
+    });
+    const payload = await response.json();
+
+    if (!response.ok || !payload.token) {
+      loginError.value = payload.error || 'Invalid username or password.';
+      return;
+    }
+
+    localStorage.setItem('hai_auth_token', payload.token);
+    isAuthenticated.value = true;
+    loginPassword.value = '';
+    await initializeAuthenticatedState();
+  } catch (error) {
+    loginError.value = 'Unable to connect to the login server.';
+  } finally {
+    loginLoading.value = false;
+  }
 };
 
-const handleLogout = () => {
+const handleLogout = async () => {
+  const token = localStorage.getItem('hai_auth_token');
+  if (token) {
+    fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }).catch((error) => console.warn('Logout request failed.', error));
+  }
+
   isAuthenticated.value = false;
+  stateLoaded.value = false;
   loginUsername.value = '';
   loginPassword.value = '';
-  localStorage.removeItem('hai_auth_session');
+  localStorage.removeItem('hai_auth_token');
 };
 
 // ----------------------------------------------------
@@ -639,9 +703,21 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
 </script>
 
 <template>
-  <div v-if="!isAuthenticated" class="min-h-screen bg-[#FDEDC9] dark:bg-zinc-950 text-slate-900 dark:text-zinc-100 flex items-center justify-center p-6 font-sans transition-colors duration-150">
-    <div class="w-full max-w-sm bg-white dark:bg-zinc-900 border border-black/10 dark:border-zinc-800 rounded-xl shadow-2xl overflow-hidden">
-      <div class="p-6 border-b border-slate-100 dark:border-zinc-800 bg-[#FDEDC9] dark:bg-zinc-900">
+  <div v-if="!authReady" class="min-h-screen bg-[#111113] text-zinc-100 flex items-center justify-center p-6 font-sans transition-colors duration-150">
+    <div class="flex flex-col items-center gap-3">
+      <div class="hai-logo-mark" aria-hidden="true">
+        <span class="hai-kana">はい</span>
+        <span class="hai-word">Hai</span>
+        <span class="hai-dot"></span>
+      </div>
+      <p class="text-[10px] font-black uppercase tracking-[0.22em] text-[#E81221]">Loading</p>
+    </div>
+  </div>
+
+  <div v-else-if="!isAuthenticated" class="min-h-screen bg-[#111113] text-slate-900 flex items-center justify-center p-6 font-sans transition-colors duration-150">
+    <div class="w-full max-w-sm bg-white border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+      <div class="h-1 bg-[#E81221]"></div>
+      <div class="p-6 border-b border-slate-100 bg-white">
         <div class="flex items-center gap-3">
           <div class="hai-logo-mark" aria-hidden="true">
             <span class="hai-kana">はい</span>
@@ -649,7 +725,7 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
             <span class="hai-dot"></span>
           </div>
           <div>
-            <h1 class="text-xl font-black uppercase tracking-tight font-display text-black dark:text-white">Hai Store</h1>
+            <h1 class="text-xl font-black uppercase tracking-tight font-display text-black">Hai Store</h1>
             <p class="text-[10px] font-black uppercase tracking-[0.2em] text-[#E81221]">Inventory Login</p>
           </div>
         </div>
@@ -657,28 +733,28 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
 
       <form @submit.prevent="handleLogin" class="p-6 space-y-4 text-xs">
         <div>
-          <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Username</label>
+          <label class="block font-bold text-slate-600 mb-1 uppercase tracking-wide">Username</label>
           <div class="relative">
             <User class="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
             <input
               v-model="loginUsername"
               type="text"
               autocomplete="username"
-              class="w-full pl-9 pr-3 py-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-semibold focus:outline-none focus:border-[#E81221]"
+              class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-zinc-800 font-semibold focus:outline-none focus:border-[#E81221]"
               placeholder="admin"
             />
           </div>
         </div>
 
         <div>
-          <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Password</label>
+          <label class="block font-bold text-slate-600 mb-1 uppercase tracking-wide">Password</label>
           <div class="relative">
             <Lock class="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
             <input
               v-model="loginPassword"
               type="password"
               autocomplete="current-password"
-              class="w-full pl-9 pr-3 py-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-semibold focus:outline-none focus:border-[#E81221]"
+              class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-zinc-800 font-semibold focus:outline-none focus:border-[#E81221]"
               placeholder="Password"
             />
           </div>
@@ -688,9 +764,10 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
 
         <button
           type="submit"
-          class="w-full py-2.5 rounded-lg bg-[#E81221] hover:bg-red-700 text-white font-black uppercase tracking-widest transition-colors"
+          :disabled="loginLoading"
+          class="w-full py-2.5 rounded-lg bg-[#E81221] hover:bg-red-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white font-black uppercase tracking-widest transition-colors"
         >
-          Sign In
+          {{ loginLoading ? 'Signing In' : 'Sign In' }}
         </button>
       </form>
     </div>
