@@ -50,9 +50,23 @@ const shouldUseSsl = (url?: string): boolean => {
   return !url.includes('localhost') && !url.includes('127.0.0.1');
 };
 
+const normalizeDatabaseUrl = (url?: string): string | undefined => {
+  if (!url || !shouldUseSsl(url)) return url;
+
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set('sslmode', 'no-verify');
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+};
+
+const normalizedDatabaseUrl = normalizeDatabaseUrl(databaseUrl);
+
 const pool = new Pool({
-  connectionString: databaseUrl,
-  ssl: shouldUseSsl(databaseUrl) ? { rejectUnauthorized: false } : false,
+  connectionString: normalizedDatabaseUrl,
+  ssl: shouldUseSsl(normalizedDatabaseUrl) ? { rejectUnauthorized: false } : false,
 });
 
 const app = express();
