@@ -16,7 +16,7 @@ import {
   TrendingDown, 
   TrendingUp, 
   AlertTriangle 
-} from 'lucide-react';
+} from '@lucide/vue';
 import { Product, StockMovement } from '../types';
 import { formatPHP, generateSKU, generateBarcode, exportToCSV, parseCSV } from '../utils';
 
@@ -79,7 +79,7 @@ const adjustReason = ref('');
 const handleOpenAddModal = () => {
   editingProduct.value = null;
   name.value = '';
-  sku.value = generateSKU(CATEGORIES[0], '');
+  sku.value = '';
   barcode.value = generateBarcode();
   description.value = '';
   category.value = 'Others';
@@ -184,10 +184,9 @@ const handleAdjustSubmit = () => {
 
 // Export CSV
 const handleExport = () => {
-  const headers = ['SKU', 'Barcode', 'Name', 'Description', 'Category', 'Brand', 'Supplier', 'Cost Price', 'Selling Price', 'Current Stock', 'Minimum Stock'];
+  const headers = ['SKU', 'Name', 'Description', 'Category', 'Brand', 'Supplier', 'Cost Price', 'Selling Price', 'Current Stock', 'Minimum Stock'];
   const rows = props.products.map(p => [
     p.sku,
-    p.barcode,
     p.name,
     p.description,
     p.category,
@@ -268,7 +267,6 @@ const filteredProducts = computed(() => {
     const matchesSearch = 
       p.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
       p.sku.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      p.barcode.includes(searchQuery.value) ||
       p.brand.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
       p.category.toLowerCase().includes(searchQuery.value.toLowerCase());
     
@@ -393,7 +391,7 @@ const handleDelete = (id: string) => {
             type="text"
             v-model="searchQuery"
             @input="currentPage = 1"
-            placeholder="Search products, SKU, barcode..."
+            placeholder="Search products, SKU, brand..."
             class="w-full pl-9 pr-4 py-2 text-xs bg-zinc-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700/80 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </div>
@@ -462,7 +460,7 @@ const handleDelete = (id: string) => {
           <thead>
             <tr class="bg-[#F8FAFC] dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800/60 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-zinc-400">
               <th class="p-4">Product</th>
-              <th class="p-4">SKU / Barcode</th>
+              <th class="p-4">SKU</th>
               <th class="p-4">Category</th>
               <th class="p-4">Pricing</th>
               <th class="p-4 text-center">Stock</th>
@@ -493,10 +491,9 @@ const handleDelete = (id: string) => {
                 </div>
               </td>
 
-              <!-- SKU/Barcode -->
+              <!-- SKU -->
               <td class="p-4 font-mono text-[11px] text-slate-600 dark:text-zinc-300 font-semibold">
                 <div>{{ p.sku }}</div>
-                <div class="text-[10px] text-zinc-400">{{ p.barcode }}</div>
               </td>
 
               <!-- Category -->
@@ -647,44 +644,50 @@ const handleDelete = (id: string) => {
     </div>
 
     <!-- MODAL: Product Add / Edit -->
+    <Teleport to="body">
     <div v-if="isProductModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" id="product-modal">
-      <div class="bg-white dark:bg-zinc-900 w-full max-w-lg rounded-xl border border-slate-200 dark:border-zinc-800 shadow-xl overflow-hidden">
-        <div class="flex items-center justify-between p-4 border-b border-zinc-100 dark:border-zinc-800">
-          <h3 class="font-bold text-sm text-zinc-900 dark:text-zinc-50 uppercase tracking-wide">
-            {{ editingProduct ? 'Edit SKU Details' : 'Add New Inventory SKU' }}
-          </h3>
+      <div class="bg-white dark:bg-zinc-900 w-full max-w-2xl max-h-[calc(100vh-2rem)] rounded-xl border border-slate-200 dark:border-zinc-800 shadow-xl overflow-hidden flex flex-col">
+        <div class="shrink-0 flex items-center justify-between px-5 py-4 border-b border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+          <div>
+            <h3 class="font-bold text-sm text-zinc-900 dark:text-zinc-50 uppercase tracking-wide">
+              {{ editingProduct ? 'Edit SKU Details' : 'Add New Inventory SKU' }}
+            </h3>
+            <p class="text-[10px] text-zinc-400 dark:text-zinc-500 font-bold uppercase tracking-wider mt-0.5">
+              {{ editingProduct ? 'Update catalog item details' : 'Register a product for catalog and POS' }}
+            </p>
+          </div>
           <button 
             @click="isProductModalOpen = false"
-            class="text-zinc-400 hover:text-zinc-600 p-1"
+            class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800"
           >
             <X class="h-4 w-4" />
           </button>
         </div>
 
-        <form @submit.prevent="handleProductSubmit" class="p-4 space-y-4 text-xs">
-          <!-- Name -->
-          <div>
-            <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Product Name *</label>
-            <div class="flex gap-2">
-              <input
-                type="text"
-                required
-                v-model="name"
-                placeholder="e.g., Vanguard Retro Court Sneakers (White/Navy)"
-                class="flex-1 p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 font-semibold"
-              />
-              <button
-                type="button"
-                @click="handleAutoDetails"
-                class="px-2.5 bg-zinc-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-200/50 font-bold uppercase text-[10px]"
-                title="Auto SKU code generation"
-              >
-                Auto SKU
-              </button>
+        <form @submit.prevent="handleProductSubmit" class="flex-1 min-h-0 flex flex-col text-xs">
+          <div class="flex-1 overflow-y-auto p-5 space-y-4">
+            <!-- Name -->
+            <div>
+              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Product Name *</label>
+              <div class="flex gap-2">
+                <input
+                  type="text"
+                  required
+                  v-model="name"
+                  placeholder="e.g., Vanguard Retro Court Sneakers (White/Navy)"
+                  class="flex-1 p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 font-semibold"
+                />
+                <button
+                  type="button"
+                  @click="handleAutoDetails"
+                  class="px-2.5 bg-zinc-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-200/50 font-bold uppercase text-[10px]"
+                  title="Auto SKU code generation"
+                >
+                  Auto SKU
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div class="grid grid-cols-2 gap-3">
             <!-- SKU -->
             <div>
               <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">SKU Code *</label>
@@ -696,134 +699,123 @@ const handleDelete = (id: string) => {
               />
             </div>
 
-            <!-- Barcode -->
+            <!-- Details -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Category</label>
+                <select
+                  v-model="category"
+                  class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold"
+                >
+                  <option v-for="cat in CATEGORIES" :key="cat" :value="cat">{{ cat }}</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Brand</label>
+                <input
+                  type="text"
+                  v-model="brand"
+                  placeholder="e.g. Nike, Apex, Summit"
+                  class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-semibold"
+                />
+              </div>
+
+              <div>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Supplier</label>
+                <input
+                  type="text"
+                  v-model="supplier"
+                  placeholder="Supplier Company"
+                  class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-semibold"
+                />
+              </div>
+            </div>
+
+            <!-- Pricing -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Cost Price (PHP) *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  v-model="costPrice"
+                  class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold"
+                />
+              </div>
+
+              <div>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Selling Price (PHP) *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  v-model="sellingPrice"
+                  class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none font-bold"
+                />
+              </div>
+            </div>
+
+            <!-- Stocks -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Initial Stock</label>
+                <input
+                  type="number"
+                  required
+                  :disabled="!!editingProduct"
+                  v-model="currentStock"
+                  class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold disabled:opacity-50"
+                />
+                <span v-if="editingProduct" class="text-[9px] text-zinc-400 mt-1 block font-semibold uppercase">Use 'Adjustment' tool for edits</span>
+              </div>
+
+              <div>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Min Alert Threshold</label>
+                <input
+                  type="number"
+                  required
+                  v-model="minimumStock"
+                  class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold"
+                />
+              </div>
+            </div>
+
+            <!-- Emojis Selector -->
             <div>
-              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Barcode *</label>
-              <input
-                type="text"
-                required
-                v-model="barcode"
-                class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-mono text-[11px] font-bold"
-              />
+              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Product Icon *</label>
+              <div class="flex flex-wrap gap-2 p-2 bg-zinc-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700 rounded-lg">
+                <button
+                  v-for="em in EMOJIS"
+                  :key="em"
+                  type="button"
+                  @click="image = em"
+                  :class="['text-xl p-1 w-8 h-8 rounded-md flex items-center justify-center transition-all',
+                    image === em ? 'bg-indigo-500/20 ring-2 ring-indigo-500 scale-115' : 'hover:bg-zinc-200 dark:hover:bg-zinc-700/50'
+                  ]"
+                >
+                  {{ em }}
+                </button>
+              </div>
             </div>
-          </div>
 
-          <!-- Details -->
-          <div class="grid grid-cols-3 gap-3">
+            <!-- Description -->
             <div>
-              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Category</label>
-              <select
-                v-model="category"
-                class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold"
-              >
-                <option v-for="cat in CATEGORIES" :key="cat" :value="cat">{{ cat }}</option>
-              </select>
+              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Description</label>
+              <textarea
+                v-model="description"
+                placeholder="Provide specifications, dimensions, sizes..."
+                rows="2"
+                class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-medium"
+              ></textarea>
             </div>
-
-            <div>
-              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Brand</label>
-              <input
-                type="text"
-                v-model="brand"
-                placeholder="e.g. Nike, Apex, Summit"
-                class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-semibold"
-              />
-            </div>
-
-            <div>
-              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Supplier</label>
-              <input
-                type="text"
-                v-model="supplier"
-                placeholder="Supplier Company"
-                class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-semibold"
-              />
-            </div>
-          </div>
-
-          <!-- Pricing -->
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Cost Price (PHP) *</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                required
-                v-model="costPrice"
-                class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold"
-              />
-            </div>
-
-            <div>
-              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Selling Price (PHP) *</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                required
-                v-model="sellingPrice"
-                class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none font-bold"
-              />
-            </div>
-          </div>
-
-          <!-- Stocks -->
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Initial Stock</label>
-              <input
-                type="number"
-                required
-                :disabled="!!editingProduct"
-                v-model="currentStock"
-                class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold disabled:opacity-50"
-              />
-              <span v-if="editingProduct" class="text-[9px] text-zinc-400 mt-1 block font-semibold uppercase">Use 'Adjustment' tool for edits</span>
-            </div>
-
-            <div>
-              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Min Alert Threshold</label>
-              <input
-                type="number"
-                required
-                v-model="minimumStock"
-                class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold"
-              />
-            </div>
-          </div>
-
-          <!-- Emojis Selector -->
-          <div>
-            <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Product Icon *</label>
-            <div class="flex flex-wrap gap-2 p-2 bg-zinc-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700 rounded-lg">
-              <button
-                v-for="em in EMOJIS"
-                :key="em"
-                type="button"
-                @click="image = em"
-                :class="['text-xl p-1 w-8 h-8 rounded-md flex items-center justify-center transition-all',
-                  image === em ? 'bg-indigo-500/20 ring-2 ring-indigo-500 scale-115' : 'hover:bg-zinc-200 dark:hover:bg-zinc-700/50'
-                ]"
-              >
-                {{ em }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Description -->
-          <div>
-            <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Description</label>
-            <textarea
-              v-model="description"
-              placeholder="Provide specifications, dimensions, sizes..."
-              rows="2"
-              class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-medium"
-            ></textarea>
           </div>
 
           <!-- Buttons -->
-          <div class="flex gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+          <div class="shrink-0 px-5 py-3 bg-white dark:bg-zinc-900 border-t border-zinc-100 dark:border-zinc-800 flex gap-2">
             <button
               type="button"
               @click="isProductModalOpen = false"
@@ -841,6 +833,7 @@ const handleDelete = (id: string) => {
         </form>
       </div>
     </div>
+    </Teleport>
 
     <!-- MODAL: Stock Adjustment -->
     <div v-if="isAdjustModalOpen && adjustingProduct" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" id="adjust-modal">

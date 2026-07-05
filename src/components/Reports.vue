@@ -4,7 +4,7 @@ import {
   Printer, 
   ChevronRight,
   FileSpreadsheet
-} from 'lucide-react';
+} from '@lucide/vue';
 import { Product, Transaction, Expense, Partner, ProfitDistributionRecord } from '../types';
 import { formatPHP, exportToCSV } from '../utils';
 
@@ -25,14 +25,14 @@ type ReportType = 'daily' | 'monthly' | 'inventory' | 'expenses' | 'profit' | 'd
 
 // States
 const activeReport = ref<ReportType>('profit');
-const dateFrom = ref(() => {
+const getDefaultDateFrom = () => {
   const d = new Date();
   d.setDate(d.getDate() - 30);
   return d.toISOString().substring(0, 10);
-});
-const dateTo = ref(() => {
-  return new Date().toISOString().substring(0, 10);
-});
+};
+const getDefaultDateTo = () => new Date().toISOString().substring(0, 10);
+const dateFrom = ref(getDefaultDateFrom());
+const dateTo = ref(getDefaultDateTo());
 
 // DATA SELECTORS based on date range
 
@@ -163,10 +163,9 @@ const handleCSVExport = () => {
       break;
 
     case 'inventory':
-      headers = ['SKU', 'Barcode', 'Product Name', 'Category', 'Brand', 'Supplier', 'Cost Price', 'Selling Price', 'Current Stock', 'Stock Valuation', 'Status'];
+      headers = ['SKU', 'Product Name', 'Category', 'Brand', 'Supplier', 'Cost Price', 'Selling Price', 'Current Stock', 'Stock Valuation', 'Status'];
       rows = props.products.map(p => [
         p.sku,
-        p.barcode,
         p.name,
         p.category,
         p.brand,
@@ -360,7 +359,7 @@ const handlePrint = () => {
                 <td class="p-3 font-bold text-zinc-700 dark:text-zinc-300">{{ tx.customerName || 'Walk-in Guest' }}</td>
                 <td class="p-3 text-center font-mono font-bold">{{ tx.items.reduce((sum, item) => sum + item.quantity, 0) }}</td>
                 <td class="p-3 text-right font-mono font-semibold">{{ formatPHP(tx.subtotal) }}</td>
-                <td class="p-3 text-right font-mono text-rose-500 font-bold">-{formatPHP(tx.discountAmount)}</td>
+                <td class="p-3 text-right font-mono text-rose-500 font-bold">-{{ formatPHP(tx.discountAmount) }}</td>
                 <td class="p-3 text-right font-mono font-black text-zinc-900 dark:text-zinc-50">{{ formatPHP(tx.total) }}</td>
                 <td class="p-3 text-right font-mono text-emerald-600 font-black">+{{ formatPHP(tx.profit) }}</td>
               </tr>
@@ -516,12 +515,12 @@ const handlePrint = () => {
 
               <div>
                 <span class="text-[10px] text-zinc-400 font-bold block uppercase tracking-wider mb-0.5">Period COGS</span>
-                <span class="font-bold font-mono text-zinc-500">-{formatPHP(aggregates.cogsTotal)}</span>
+                <span class="font-bold font-mono text-zinc-500">-{{ formatPHP(aggregates.cogsTotal) }}</span>
               </div>
 
               <div>
                 <span class="text-[10px] text-zinc-400 font-bold block uppercase tracking-wider mb-0.5">Period Expenses</span>
-                <span class="font-bold font-mono text-rose-500">-{formatPHP(aggregates.expensesTotal)}</span>
+                <span class="font-bold font-mono text-rose-500">-{{ formatPHP(aggregates.expensesTotal) }}</span>
               </div>
 
               <div class="border-l border-slate-200 dark:border-zinc-800 pl-4">

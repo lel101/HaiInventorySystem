@@ -14,7 +14,7 @@ import {
   CheckCircle,
   Clock,
   Sparkles
-} from 'lucide-react';
+} from '@lucide/vue';
 import { 
   Product, 
   Transaction, 
@@ -34,6 +34,7 @@ import {
   INITIAL_STOCK_MOVEMENTS, 
   INITIAL_DISTRIBUTIONS
 } from './utils';
+import { loadServerState, PersistedAppState, saveServerState } from './serverState';
 
 // Views
 import Dashboard from './components/Dashboard.vue';
@@ -57,11 +58,44 @@ const activeView = ref<string>('dashboard');
 const darkMode = ref<boolean>(false);
 const toasts = ref<ToastMessage[]>([]);
 const currentTime = ref<string>('');
+const stateLoaded = ref<boolean>(false);
 
 let timeInterval: any = null;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+const getPersistedState = (): PersistedAppState => ({
+  products: products.value,
+  transactions: transactions.value,
+  expenses: expenses.value,
+  partners: partners.value,
+  distributions: distributions.value,
+  stockMovements: stockMovements.value,
+  darkMode: darkMode.value,
+});
+
+const queueServerSave = () => {
+  if (!stateLoaded.value) return;
+  if (saveTimer) clearTimeout(saveTimer);
+
+  saveTimer = setTimeout(() => {
+    saveServerState(getPersistedState()).catch((error) => {
+      console.warn('PostgreSQL sync failed; localStorage fallback remains available.', error);
+    });
+  }, 400);
+};
+
+const applyRemoteState = (state: Partial<PersistedAppState>) => {
+  products.value = Array.isArray(state.products) ? state.products : INITIAL_PRODUCTS;
+  transactions.value = Array.isArray(state.transactions) ? state.transactions : INITIAL_TRANSACTIONS;
+  expenses.value = Array.isArray(state.expenses) ? state.expenses : INITIAL_EXPENSES;
+  partners.value = Array.isArray(state.partners) ? state.partners : INITIAL_PARTNERS;
+  distributions.value = Array.isArray(state.distributions) ? state.distributions : INITIAL_DISTRIBUTIONS;
+  stockMovements.value = Array.isArray(state.stockMovements) ? state.stockMovements : INITIAL_STOCK_MOVEMENTS;
+  darkMode.value = !!state.darkMode;
+};
 
 // Initialize state with localStorage
-const loadState = () => {
+const loadLocalState = () => {
   // Products
   const savedProd = localStorage.getItem('biz_products');
   if (savedProd) {
@@ -168,29 +202,49 @@ const loadState = () => {
   darkMode.value = localStorage.getItem('biz_dark_mode') === 'true';
 };
 
+const loadState = async () => {
+  try {
+    const serverState = await loadServerState();
+    if (serverState) {
+      applyRemoteState(serverState);
+      return;
+    }
+  } catch (error) {
+    console.warn('PostgreSQL state unavailable; using localStorage fallback.', error);
+  }
+
+  loadLocalState();
+};
+
 // Syncing triggers using watch
 watch(products, (newVal) => {
   localStorage.setItem('biz_products', JSON.stringify(newVal));
+  queueServerSave();
 }, { deep: true });
 
 watch(transactions, (newVal) => {
   localStorage.setItem('biz_transactions', JSON.stringify(newVal));
+  queueServerSave();
 }, { deep: true });
 
 watch(expenses, (newVal) => {
   localStorage.setItem('biz_expenses', JSON.stringify(newVal));
+  queueServerSave();
 }, { deep: true });
 
 watch(partners, (newVal) => {
   localStorage.setItem('biz_partners', JSON.stringify(newVal));
+  queueServerSave();
 }, { deep: true });
 
 watch(distributions, (newVal) => {
   localStorage.setItem('biz_distributions', JSON.stringify(newVal));
+  queueServerSave();
 }, { deep: true });
 
 watch(stockMovements, (newVal) => {
   localStorage.setItem('biz_stock_movements', JSON.stringify(newVal));
+  queueServerSave();
 }, { deep: true });
 
 watch(darkMode, (newVal) => {
@@ -201,6 +255,7 @@ watch(darkMode, (newVal) => {
   } else {
     root.classList.remove('dark');
   }
+  queueServerSave();
 });
 
 // Current local time ticker setup
@@ -217,14 +272,16 @@ const updateTime = () => {
   });
 };
 
-onMounted(() => {
-  loadState();
+onMounted(async () => {
+  await loadState();
+  stateLoaded.value = true;
   updateTime();
   timeInterval = setInterval(updateTime, 1000);
 });
 
 onUnmounted(() => {
   if (timeInterval) clearInterval(timeInterval);
+  if (saveTimer) clearTimeout(saveTimer);
 });
 
 // Toast dispatch helper
@@ -559,9 +616,9 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
     <header class="h-16 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 px-8 flex justify-between items-center shrink-0 print:hidden shadow-xs">
       <div class="flex items-center gap-3">
         <h1 class="text-sm md:text-lg font-bold text-slate-800 dark:text-slate-100 uppercase tracking-widest font-display">
-          <span v-if="activeView === 'dashboard'">Admin Overview</span>
+          <span v-if="activeView === 'dashboard'">Hai Store Inventory</span>
           <span v-else-if="activeView === 'pos'">POS Terminal</span>
-          <span v-else-if="activeView === 'inventory'">Inventory</span>
+          <span v-else-if="activeView === 'inventory'">Hai Store Inventory</span>
           <span v-else-if="activeView === 'expenses'">Expenses Ledger</span>
           <span v-else-if="activeView === 'partners'">Profit Distribution</span>
           <span v-else-if="activeView === 'reports'">Business Reports</span>
@@ -579,7 +636,7 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
         <!-- Role status badge -->
         <div class="flex items-center gap-2">
           <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">Store Live</span>
+          <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">Hai Store Live</span>
         </div>
 
         <div class="h-4 w-[1px] bg-slate-200 dark:bg-zinc-800 hidden md:block"></div>
@@ -603,9 +660,16 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
       <aside class="w-64 bg-[#0F172A] dark:bg-zinc-950 text-slate-300 flex flex-col justify-between shrink-0 border-r border-slate-800 dark:border-zinc-900 p-6 print:hidden">
         <div class="space-y-8">
           <!-- Logo block -->
-          <div class="flex items-center gap-2.5">
-            <div class="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-black text-xl font-display">S</div>
-            <span class="text-white font-bold text-xl tracking-tight uppercase font-display">SwiftStock<span class="text-indigo-400 text-xs ml-0.5">PH</span></span>
+          <div class="flex items-center gap-3">
+            <div class="hai-logo-mark" aria-hidden="true">
+              <span class="hai-kana">はい</span>
+              <span class="hai-word">Hai</span>
+              <span class="hai-dot"></span>
+            </div>
+            <div>
+              <span class="block text-white font-black text-xl tracking-tight uppercase font-display leading-none">Hai Store</span>
+              <span class="block text-[#E81221] text-[10px] font-black tracking-[0.18em] uppercase mt-1">Inventory</span>
+            </div>
           </div>
 
           <div class="space-y-1">
@@ -662,7 +726,7 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
               AD
             </div>
             <div>
-              <p class="text-white text-xs font-semibold">Admin User</p>
+              <p class="text-white text-xs font-semibold">Hai Store</p>
               <p class="text-[10px] text-slate-400 tracking-wider">STORE OWNER</p>
             </div>
           </div>
@@ -762,6 +826,52 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
 </template>
 
 <style>
+.hai-logo-mark {
+  position: relative;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.5rem;
+  border: 2px solid #000000;
+  background: #FDEDC9;
+  color: #000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 2px rgba(232, 18, 33, 0.14);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.hai-word {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 900;
+  font-size: 1rem;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  transform: skew(-8deg);
+}
+
+.hai-kana {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  font-size: 0.45rem;
+  line-height: 1;
+  font-weight: 900;
+  writing-mode: vertical-rl;
+}
+
+.hai-dot {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.25rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 9999px;
+  background: #E81221;
+}
+
 /* Clean layout fade transitions */
 .animate-fade-in {
   animation: fadeIn 0.2s ease-out forwards;

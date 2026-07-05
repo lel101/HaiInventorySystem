@@ -8,15 +8,11 @@ import {
   Plus, 
   User, 
   Percent, 
-  CreditCard, 
-  Sparkles,
-  Barcode,
   Coins,
   CheckCircle,
   ShoppingBag,
-  ArrowRight,
-  Receipt
-} from 'lucide-react';
+  ArrowRight
+} from '@lucide/vue';
 import { Product, CartItem, PaymentMethod } from '../types';
 import { formatPHP } from '../utils';
 
@@ -40,18 +36,14 @@ const customerName = ref('');
 const transactionDiscount = ref<number>(0);
 const paymentMethod = ref<PaymentMethod>('Cash');
 const cashAmountPaid = ref<string>('');
-
-// Barcode simulation input
-const barcodeInput = ref('');
-const barcodeInputRef = ref<HTMLInputElement | null>(null);
+const paymentMethods: PaymentMethod[] = ['Cash', 'GCash', 'Maya', 'Bank Transfer'];
 
 // Active products filter
 const activeProducts = computed(() => {
   return props.products.filter(p => {
     const matchesSearch = 
       p.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      p.sku.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      p.barcode.includes(searchQuery.value);
+      p.sku.toLowerCase().includes(searchQuery.value.toLowerCase());
     
     const matchesCategory = selectedCategory.value === 'All' || p.category === selectedCategory.value;
     
@@ -76,24 +68,6 @@ const handleAddToCart = (product: Product) => {
     cart.value[existingIndex].quantity += 1;
   } else {
     cart.value.push({ product, quantity: 1, discount: 0 });
-  }
-};
-
-// Simulating Barcode Scan
-const handleBarcodeSubmit = () => {
-  if (!barcodeInput.value.trim()) return;
-
-  const matchedProduct = props.products.find(p => 
-    p.barcode === barcodeInput.value.trim() || 
-    p.sku.toLowerCase() === barcodeInput.value.trim().toLowerCase()
-  );
-  
-  if (matchedProduct) {
-    handleAddToCart(matchedProduct);
-    barcodeInput.value = '';
-    emit('add-toast', 'Barcode Scanned', `Scanned: ${matchedProduct.name}`, 'success');
-  } else {
-    emit('add-toast', 'Scan Error', `No product found with Barcode/SKU: ${barcodeInput.value}`, 'error');
   }
 };
 
@@ -203,7 +177,7 @@ const changeDue = computed(() => {
   <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start" id="pos-view">
     <!-- LEFT COLUMN: Product Catalog (7 cols) -->
     <div class="lg:col-span-7 space-y-4" id="pos-catalog-column">
-      <!-- Search, Categories, and Barcode Simulation -->
+      <!-- Search and Categories -->
       <div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-4 rounded-xl space-y-3.5 shadow-sm">
         <div class="flex flex-col sm:flex-row gap-3">
           <!-- Catalog search -->
@@ -218,28 +192,6 @@ const changeDue = computed(() => {
               class="w-full pl-9 pr-4 py-2 text-xs bg-zinc-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700/80 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-semibold"
             />
           </div>
-
-          <!-- Barcode Simulator input -->
-          <form @submit.prevent="handleBarcodeSubmit" class="relative w-full sm:w-56 flex gap-1">
-            <div class="relative flex-1">
-              <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-400">
-                <Barcode class="h-4 w-4" />
-              </span>
-              <input
-                type="text"
-                ref="barcodeInputRef"
-                v-model="barcodeInput"
-                placeholder="Simulate Barcode / SKU Scan"
-                class="w-full pl-9 pr-2 py-2 text-xs bg-zinc-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700/80 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono font-bold"
-              />
-            </div>
-            <button 
-              type="submit"
-              class="bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 p-2 rounded-lg border border-slate-200 dark:border-zinc-750 text-[11px] font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 transition-colors"
-            >
-              Scan
-            </button>
-          </form>
         </div>
 
         <!-- Quick-links of Categories -->
@@ -429,20 +381,20 @@ const changeDue = computed(() => {
           <label class="block text-[10px] font-bold text-slate-500 dark:text-zinc-400 mb-1 uppercase tracking-widest">Payment Channel</label>
           <div class="grid grid-cols-4 gap-1.5" id="payment-methods">
             <button
-              v-for="pm in (['Cash', 'GCash', 'Maya', 'Bank Transfer'] as PaymentMethod[])"
+              v-for="pm in paymentMethods"
               :key="pm"
               type="button"
-              @click="paymentMethod = pm; if (pm !== 'Cash') cashAmountPaid = ''"
+              :disabled="pm !== 'Cash'"
+              @click="paymentMethod = 'Cash'"
               :class="['py-2 px-1 text-[10px] border rounded-lg font-black uppercase tracking-wider flex flex-col items-center justify-center gap-1 transition-all',
-                paymentMethod === pm
+                pm !== 'Cash'
+                  ? 'border-slate-200 dark:border-zinc-800 text-zinc-300 dark:text-zinc-600 bg-zinc-50/60 dark:bg-zinc-900/60 cursor-not-allowed opacity-60'
+                  : paymentMethod === pm
                   ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 shadow-sm'
                   : 'border-slate-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
               ]"
             >
-              <Coins v-if="pm === 'Cash'" class="h-3.5 w-3.5" />
-              <Sparkles v-else-if="pm === 'GCash'" class="h-3.5 w-3.5" />
-              <CreditCard v-else-if="pm === 'Maya'" class="h-3.5 w-3.5" />
-              <Receipt v-else class="h-3.5 w-3.5" />
+              <Coins class="h-3.5 w-3.5" />
               {{ pm }}
             </button>
           </div>
@@ -473,7 +425,7 @@ const changeDue = computed(() => {
           </div>
           <div v-if="totals.totalDiscount > 0" class="flex justify-between items-center text-rose-500 font-bold">
             <span class="font-bold uppercase tracking-wider text-[10px]">Total Discounts:</span>
-            <span class="font-mono">-{formatPHP(totals.totalDiscount)}</span>
+            <span class="font-mono">-{{ formatPHP(totals.totalDiscount) }}</span>
           </div>
           <div class="flex justify-between items-center border-t border-slate-200 dark:border-zinc-700 pt-2 text-[11px] font-black text-slate-700 dark:text-zinc-100 uppercase tracking-widest">
             <span>Grand Total Due:</span>

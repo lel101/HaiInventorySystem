@@ -6,9 +6,7 @@ import {
   Trash2, 
   FileText, 
   Calendar, 
-  UploadCloud, 
   X, 
-  Eye, 
   Building,
   Users,
   Zap,
@@ -16,7 +14,7 @@ import {
   Megaphone,
   Truck,
   HelpCircle
-} from 'lucide-react';
+} from '@lucide/vue';
 import { Expense } from '../types';
 import { formatPHP } from '../utils';
 
@@ -43,11 +41,6 @@ const category = ref<typeof CATEGORIES[number]>('Miscellaneous');
 const amount = ref('');
 const description = ref('');
 const date = ref(new Date().toISOString().substring(0, 10));
-const receiptImage = ref('');
-const isReceiptDragging = ref(false);
-const viewingReceiptUrl = ref<string | null>(null);
-
-const fileInputRef = ref<HTMLInputElement | null>(null);
 
 // Category helpers
 const getCategoryIcon = (cat: string) => {
@@ -74,50 +67,6 @@ const getCategoryBadgeColor = (cat: string) => {
   }
 };
 
-// Image processing
-const processImageFile = (file: File) => {
-  if (!file.type.startsWith('image/')) {
-    emit('add-toast', 'Invalid File Type', 'Please upload an image file (PNG, JPG, WEBP).', 'error');
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    if (event.target?.result) {
-      receiptImage.value = event.target.result as string;
-      emit('add-toast', 'Receipt Uploaded', 'Successfully scanned and attached receipt image.', 'success');
-    }
-  };
-  reader.readAsDataURL(file);
-};
-
-// Drag & drop
-const handleDragOver = (e: DragEvent) => {
-  e.preventDefault();
-  isReceiptDragging.value = true;
-};
-
-const handleDragLeave = () => {
-  isReceiptDragging.value = false;
-};
-
-const handleDrop = (e: DragEvent) => {
-  e.preventDefault();
-  isReceiptDragging.value = false;
-  const file = e.dataTransfer?.files?.[0];
-  if (file) {
-    processImageFile(file);
-  }
-};
-
-const handleFileSelect = (e: Event) => {
-  const target = e.target as HTMLInputElement;
-  const file = target.files?.[0];
-  if (file) {
-    processImageFile(file);
-  }
-};
-
 // Submit Expense
 const handleSubmit = () => {
   const parsedAmount = Number(amount.value);
@@ -134,8 +83,7 @@ const handleSubmit = () => {
     category: category.value,
     amount: parsedAmount,
     description: description.value.trim(),
-    date: date.value,
-    receiptImage: receiptImage.value || undefined
+    date: date.value
   });
 
   // Reset Form
@@ -144,7 +92,6 @@ const handleSubmit = () => {
   amount.value = '';
   description.value = '';
   date.value = new Date().toISOString().substring(0, 10);
-  receiptImage.value = '';
 };
 
 // Filters and computations
@@ -234,14 +181,13 @@ const handleDelete = (id: string) => {
               <th class="p-4">Date</th>
               <th class="p-4">Expense Category</th>
               <th class="p-4">Description / Notes</th>
-              <th class="p-4">Receipt</th>
               <th class="p-4 text-right">Amount</th>
               <th class="p-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-zinc-800/50">
             <tr v-if="sortedExpenses.length === 0">
-              <td colspan="6" class="p-12 text-center text-zinc-400">
+              <td colspan="5" class="p-12 text-center text-zinc-400">
                 <div class="flex flex-col items-center gap-2">
                   <FileText class="h-8 w-8 text-zinc-300" />
                   <span class="font-bold uppercase tracking-wider text-[10px]">No expenses registered yet</span>
@@ -268,18 +214,6 @@ const handleDelete = (id: string) => {
               <!-- Description -->
               <td class="p-4 font-semibold text-slate-800 dark:text-zinc-200 max-w-xs truncate" :title="exp.description">
                 {{ exp.description }}
-              </td>
-
-              <!-- Receipt -->
-              <td class="p-4">
-                <button
-                  v-if="exp.receiptImage"
-                  @click="viewingReceiptUrl = exp.receiptImage"
-                  class="text-emerald-600 dark:text-emerald-400 hover:underline font-bold flex items-center gap-1 text-[11px]"
-                >
-                  <Eye class="h-3.5 w-3.5" /> View Receipt
-                </button>
-                <span v-else class="text-zinc-400 text-[11px] font-bold uppercase tracking-wider">— No Attachment</span>
               </td>
 
               <!-- Amount -->
@@ -370,56 +304,6 @@ const handleDelete = (id: string) => {
             />
           </div>
 
-          <!-- Drag & Drop Receipt attachment -->
-          <div>
-            <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Receipt Attachment</label>
-            
-            <div v-if="receiptImage" class="relative border border-slate-200 dark:border-zinc-700 rounded-lg p-2 bg-zinc-50 dark:bg-zinc-800 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <img 
-                  :src="receiptImage" 
-                  alt="Receipt preview" 
-                  class="w-12 h-12 object-cover rounded-md border border-slate-200" 
-                />
-                <div>
-                  <p class="font-bold text-zinc-700 dark:text-zinc-300">receipt_attached.png</p>
-                  <p class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wide">Scanned and attached</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                @click="receiptImage = ''"
-                class="p-1 bg-rose-50 dark:bg-rose-950/20 text-rose-50 rounded-full hover:bg-rose-100"
-              >
-                <X class="h-4 w-4" />
-              </button>
-            </div>
-            <div
-              v-else
-              @dragover="handleDragOver"
-              @dragleave="handleDragLeave"
-              @drop="handleDrop"
-              @click="fileInputRef?.click()"
-              :class="['border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all',
-                isReceiptDragging 
-                  ? 'border-rose-500 bg-rose-50/20' 
-                  : 'border-zinc-300 dark:border-zinc-700 hover:border-rose-500/50'
-              ]"
-            >
-              <UploadCloud class="h-8 w-8 text-zinc-400" />
-              <p class="text-center font-bold text-zinc-600 dark:text-zinc-300">Drop receipt here, or browse files</p>
-              <p class="text-[10px] text-zinc-400 font-semibold uppercase tracking-wide">PNG, JPG, WEBP up to 5MB</p>
-              
-              <input 
-                type="file" 
-                ref="fileInputRef" 
-                @change="handleFileSelect" 
-                accept="image/*" 
-                class="hidden" 
-              />
-            </div>
-          </div>
-
           <!-- Buttons -->
           <div class="flex gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
             <button
@@ -440,26 +324,5 @@ const handleDelete = (id: string) => {
       </div>
     </div>
 
-    <!-- LIGHTBOX: Viewing Receipt image -->
-    <div 
-      v-if="viewingReceiptUrl"
-      @click="viewingReceiptUrl = null"
-      class="fixed inset-0 z-55 bg-black/80 flex items-center justify-center p-4 cursor-pointer"
-    >
-      <div class="relative max-w-2xl max-h-[85vh] bg-zinc-900 p-2 rounded-xl border border-zinc-800 shadow-2xl" @click.stop>
-        <button
-          @click="viewingReceiptUrl = null"
-          class="absolute -top-3 -right-3 bg-white text-black p-1.5 rounded-full shadow-lg"
-        >
-          <X class="h-4 w-4" />
-        </button>
-        <img 
-          :src="viewingReceiptUrl" 
-          alt="Receipt Attachment Lightbox" 
-          class="max-w-full max-h-[80vh] object-contain rounded-lg" 
-        />
-        <p class="text-center text-[10px] text-zinc-400 mt-2 font-mono uppercase tracking-widest font-semibold">Click outside receipt to close</p>
-      </div>
-    </div>
   </div>
 </template>

@@ -11,7 +11,7 @@ import {
   Sparkles,
   Layers,
   Calculator
-} from 'lucide-react';
+} from '@lucide/vue';
 import { Partner, ProfitDistributionRecord, Transaction, Expense } from '../types';
 import { formatPHP } from '../utils';
 
@@ -36,12 +36,13 @@ const partnerName = ref('');
 const partnerPercentage = ref('');
 
 // Month selector default: current month
-const selectedMonth = ref(() => {
+const getDefaultMonth = () => {
   const today = new Date();
   const year = today.getFullYear();
   const month = String(today.getMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
-});
+};
+const selectedMonth = ref(getDefaultMonth());
 
 // Calculate total share allocation sum
 const totalSharePercentage = computed(() => {

@@ -5,7 +5,7 @@ import {
   ArrowUpRight, 
   FileText, 
   AlertTriangle 
-} from 'lucide-react';
+} from '@lucide/vue';
 import { Product, Transaction } from '../types';
 import { formatPHP } from '../utils';
 
