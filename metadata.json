@@ -1,0 +1,6 @@
+{
+  "name": "Inventory, POS & Profit System",
+  "description": "A comprehensive, production-ready system for tracking inventory, managing POS sales transactions, logging expenses, analyzing sales and net profits, and distributing monthly profits among business partners.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
