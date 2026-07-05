@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { 
   LayoutDashboard, 
@@ -13,7 +13,10 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
-  Sparkles
+  Sparkles,
+  LogOut,
+  Lock,
+  User
 } from '@lucide/vue';
 import { 
   Product, 
@@ -59,9 +62,15 @@ const darkMode = ref<boolean>(false);
 const toasts = ref<ToastMessage[]>([]);
 const currentTime = ref<string>('');
 const stateLoaded = ref<boolean>(false);
+const isAuthenticated = ref<boolean>(false);
+const loginUsername = ref<string>('');
+const loginPassword = ref<string>('');
+const loginError = ref<string>('');
 
 let timeInterval: any = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+const AUTH_USERNAME = 'admin';
+const AUTH_PASSWORD = 'P@ssw0rd';
 
 const getPersistedState = (): PersistedAppState => ({
   products: products.value,
@@ -273,6 +282,7 @@ const updateTime = () => {
 };
 
 onMounted(async () => {
+  isAuthenticated.value = localStorage.getItem('hai_auth_session') === 'true';
   await loadState();
   stateLoaded.value = true;
   updateTime();
@@ -295,6 +305,25 @@ const addToast = (title: string, message: string, type: ToastMessage['type'] = '
 
 const removeToast = (id: string) => {
   toasts.value = toasts.value.filter(t => t.id !== id);
+};
+
+const handleLogin = () => {
+  if (loginUsername.value === AUTH_USERNAME && loginPassword.value === AUTH_PASSWORD) {
+    isAuthenticated.value = true;
+    loginError.value = '';
+    loginPassword.value = '';
+    localStorage.setItem('hai_auth_session', 'true');
+    return;
+  }
+
+  loginError.value = 'Invalid username or password.';
+};
+
+const handleLogout = () => {
+  isAuthenticated.value = false;
+  loginUsername.value = '';
+  loginPassword.value = '';
+  localStorage.removeItem('hai_auth_session');
 };
 
 // ----------------------------------------------------
@@ -471,7 +500,7 @@ const handleDeleteExpense = (id: string) => {
   const item = expenses.value.find(e => e.id === id);
   if (!item) return;
 
-  if (window.confirm(`Delete expense of ₱${item.amount.toFixed(2)} logged on ${new Date(item.date).toLocaleDateString()}?`)) {
+  if (window.confirm(`Delete expense of â‚±${item.amount.toFixed(2)} logged on ${new Date(item.date).toLocaleDateString()}?`)) {
     expenses.value = expenses.value.filter(e => e.id !== id);
     addToast('Record Purged', 'Expense ledger item removed.', 'info');
   }
@@ -610,7 +639,64 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#F8FAFC] dark:bg-zinc-950 text-slate-900 dark:text-zinc-100 flex flex-col font-sans transition-colors duration-150">
+  <div v-if="!isAuthenticated" class="min-h-screen bg-[#FDEDC9] dark:bg-zinc-950 text-slate-900 dark:text-zinc-100 flex items-center justify-center p-6 font-sans transition-colors duration-150">
+    <div class="w-full max-w-sm bg-white dark:bg-zinc-900 border border-black/10 dark:border-zinc-800 rounded-xl shadow-2xl overflow-hidden">
+      <div class="p-6 border-b border-slate-100 dark:border-zinc-800 bg-[#FDEDC9] dark:bg-zinc-900">
+        <div class="flex items-center gap-3">
+          <div class="hai-logo-mark" aria-hidden="true">
+            <span class="hai-kana">はい</span>
+            <span class="hai-word">Hai</span>
+            <span class="hai-dot"></span>
+          </div>
+          <div>
+            <h1 class="text-xl font-black uppercase tracking-tight font-display text-black dark:text-white">Hai Store</h1>
+            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-[#E81221]">Inventory Login</p>
+          </div>
+        </div>
+      </div>
+
+      <form @submit.prevent="handleLogin" class="p-6 space-y-4 text-xs">
+        <div>
+          <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Username</label>
+          <div class="relative">
+            <User class="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
+            <input
+              v-model="loginUsername"
+              type="text"
+              autocomplete="username"
+              class="w-full pl-9 pr-3 py-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-semibold focus:outline-none focus:border-[#E81221]"
+              placeholder="admin"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Password</label>
+          <div class="relative">
+            <Lock class="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
+            <input
+              v-model="loginPassword"
+              type="password"
+              autocomplete="current-password"
+              class="w-full pl-9 pr-3 py-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-semibold focus:outline-none focus:border-[#E81221]"
+              placeholder="Password"
+            />
+          </div>
+        </div>
+
+        <p v-if="loginError" class="text-[11px] font-bold text-rose-600">{{ loginError }}</p>
+
+        <button
+          type="submit"
+          class="w-full py-2.5 rounded-lg bg-[#E81221] hover:bg-red-700 text-white font-black uppercase tracking-widest transition-colors"
+        >
+          Sign In
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div v-else class="min-h-screen bg-[#F8FAFC] dark:bg-zinc-950 text-slate-900 dark:text-zinc-100 flex flex-col font-sans transition-colors duration-150">
     
     <!-- HEADER BAR -->
     <header class="h-16 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 px-8 flex justify-between items-center shrink-0 print:hidden shadow-xs">
@@ -649,6 +735,14 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
         >
           <Sun v-if="darkMode" class="h-4 w-4" />
           <Moon v-else class="h-4 w-4" />
+        </button>
+
+        <button
+          @click="handleLogout"
+          class="p-2 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-zinc-700 dark:hover:text-rose-400 transition-colors"
+          title="Sign out"
+        >
+          <LogOut class="h-4 w-4" />
         </button>
       </div>
     </header>
