@@ -64,7 +64,7 @@ Use a hosted PostgreSQL database for production. Your local `localhost` PostgreS
 
 1. Create a Supabase project.
 2. Copy the Supabase PostgreSQL connection string.
-3. In Vercel, add an environment variable named `DATABASE_URL`.
+3. In Vercel, confirm one of these environment variables exists: `POSTGRES_URL_NON_POOLING`, `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, or `DATABASE_URL`.
 4. Run migrations against the Supabase database before using the app:
 
 ```bash
@@ -79,6 +79,10 @@ npm run db:migrate
 ```
 
 5. Deploy/import the Git repo in Vercel.
+
+The app automatically prefers Vercel/Supabase Postgres variables in this order: `POSTGRES_URL_NON_POOLING`, `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, then `DATABASE_URL`.
+
+If `/api/health` returns an error like `getaddrinfo ENOTFOUND base`, remove or fix the bad `DATABASE_URL` value in Vercel, then redeploy.
 
 Vercel settings:
 

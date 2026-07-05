@@ -7,10 +7,14 @@ import { Pool } from 'pg';
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl =
+  process.env.POSTGRES_URL_NON_POOLING ||
+  process.env.POSTGRES_URL ||
+  process.env.POSTGRES_PRISMA_URL ||
+  process.env.DATABASE_URL;
 
 if (!databaseUrl) {
-  throw new Error('DATABASE_URL is required to run migrations.');
+  throw new Error('A PostgreSQL connection string is required. Set POSTGRES_URL_NON_POOLING, POSTGRES_URL, POSTGRES_PRISMA_URL, or DATABASE_URL.');
 }
 
 const __filename = fileURLToPath(import.meta.url);

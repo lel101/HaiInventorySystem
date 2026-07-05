@@ -26,10 +26,23 @@ interface PersistedAppState {
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl =
+  process.env.POSTGRES_URL_NON_POOLING ||
+  process.env.POSTGRES_URL ||
+  process.env.POSTGRES_PRISMA_URL ||
+  process.env.DATABASE_URL;
+const databaseUrlSource = process.env.POSTGRES_URL_NON_POOLING
+  ? 'POSTGRES_URL_NON_POOLING'
+  : process.env.POSTGRES_URL
+    ? 'POSTGRES_URL'
+    : process.env.POSTGRES_PRISMA_URL
+      ? 'POSTGRES_PRISMA_URL'
+      : process.env.DATABASE_URL
+        ? 'DATABASE_URL'
+        : 'none';
 
 if (!databaseUrl) {
-  console.warn('DATABASE_URL is not set. API database routes will fail until it is configured.');
+  console.warn('No PostgreSQL connection string is set. API database routes will fail until it is configured.');
 }
 
 const pool = new Pool({
@@ -395,9 +408,13 @@ app.get('/api/health', async (_req, res) => {
   try {
     await ensureSchema();
     await pool.query('select 1');
-    res.json({ ok: true });
+    res.json({ ok: true, databaseUrlSource });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'Database error' });
+    res.status(500).json({
+      ok: false,
+      databaseUrlSource,
+      error: error instanceof Error ? error.message : 'Database error',
+    });
   }
 });
 
