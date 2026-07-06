@@ -14,6 +14,7 @@ export interface Product {
   image: string;
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
   createdAt: string;
+  deletedAt?: string;
 }
 
 export interface StockMovement {
@@ -67,12 +68,14 @@ export interface Expense {
   date: string;
   receiptImage?: string; // Base64 or mock file path
   createdAt: string;
+  deletedAt?: string;
 }
 
 export interface Partner {
   id: string;
   name: string;
   sharePercentage: number;
+  deletedAt?: string;
 }
 
 export interface ProfitDistributionRecord {
@@ -97,4 +100,21 @@ export interface ToastMessage {
   type: 'success' | 'error' | 'info' | 'warning';
   title: string;
   message: string;
+}
+
+export type UserRole = 'admin' | 'investor';
+
+export interface AuthUser {
+  username: string;
+  role: UserRole;
+  partnerId?: string;
+}
+
+export interface InvestorAccount {
+  id: string;
+  partnerId: string;
+  username: string;
+  password: string;
+  updatedAt: string;
+  deletedAt?: string;
 }

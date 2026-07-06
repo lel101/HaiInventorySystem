@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { 
   Users, 
   Plus, 
@@ -10,9 +10,13 @@ import {
   Coins, 
   Sparkles,
   Layers,
-  Calculator
+  Calculator,
+  KeyRound,
+  Save,
+  Eye,
+  EyeOff
 } from '@lucide/vue';
-import { Partner, ProfitDistributionRecord, Transaction, Expense } from '../types';
+import { Partner, ProfitDistributionRecord, Transaction, Expense, InvestorAccount } from '../types';
 import { formatPHP } from '../utils';
 
 // Props & Emits
@@ -21,12 +25,14 @@ const props = defineProps<{
   distributions: ProfitDistributionRecord[];
   transactions: Transaction[];
   expenses: Expense[];
+  investorAccounts: InvestorAccount[];
 }>();
 
 const emit = defineEmits<{
-  (e: 'add-partner', partner: Omit<Partner, 'id'>): void;
+  (e: 'add-partner', partner: Omit<Partner, 'id'> & { investorUsername: string; investorPassword: string }): void;
   (e: 'update-partner-shares', partners: Partner[]): void;
   (e: 'delete-partner', id: string): void;
+  (e: 'save-investor-account', payload: { partnerId: string; username: string; password: string }): void;
   (e: 'post-distribution', record: Omit<ProfitDistributionRecord, 'id' | 'createdAt'>): void;
   (e: 'add-toast', title: string, message: string, type: 'success' | 'error'): void;
 }>();
@@ -34,6 +40,26 @@ const emit = defineEmits<{
 // Form states
 const partnerName = ref('');
 const partnerPercentage = ref('');
+const investorUsername = ref('');
+const investorPassword = ref('');
+const credentialDrafts = ref<Record<string, { username: string; password: string }>>({});
+const showNewInvestorPassword = ref(false);
+const visiblePasswords = ref<Record<string, boolean>>({});
+
+watch(
+  () => props.investorAccounts,
+  (accounts) => {
+    const next = { ...credentialDrafts.value };
+    accounts.forEach((account) => {
+      next[account.partnerId] = {
+        username: account.username,
+        password: account.password,
+      };
+    });
+    credentialDrafts.value = next;
+  },
+  { immediate: true, deep: true }
+);
 
 // Month selector default: current month
 const getDefaultMonth = () => {
@@ -87,8 +113,21 @@ const isAlreadyDistributed = computed(() => {
 const handleCreatePartner = () => {
   if (!partnerName.value.trim()) return;
   const pct = Number(partnerPercentage.value);
+  const username = investorUsername.value.trim();
+  const password = investorPassword.value.trim();
+
   if (isNaN(pct) || pct <= 0 || pct > 100) {
     emit('add-toast', 'Invalid Share', 'Share percentage must be between 1 and 100.', 'error');
+    return;
+  }
+
+  if (!username || !password) {
+    emit('add-toast', 'Missing Login', 'Set an investor username and password before registering the partner.', 'error');
+    return;
+  }
+
+  if (password.length < 4) {
+    emit('add-toast', 'Weak Password', 'Investor password must be at least 4 characters.', 'error');
     return;
   }
 
@@ -99,12 +138,15 @@ const handleCreatePartner = () => {
 
   emit('add-partner', {
     name: partnerName.value.trim(),
-    sharePercentage: pct
+    sharePercentage: pct,
+    investorUsername: username,
+    investorPassword: password
   });
 
   partnerName.value = '';
   partnerPercentage.value = '';
-  emit('add-toast', 'Partner Registered', `Successfully registered stakeholder with ${pct}% stake.`, 'success');
+  investorUsername.value = '';
+  investorPassword.value = '';
 };
 
 // Adjust share allocations dynamically
@@ -158,9 +200,55 @@ const handlePostDistribution = () => {
 };
 
 const handleDelete = (id: string, name: string) => {
-  if (window.confirm(`Are you sure you want to remove ${name} from partners?`)) {
-    emit('delete-partner', id);
+  emit('delete-partner', id);
+};
+
+const getDraft = (partnerId: string) => {
+  if (!credentialDrafts.value[partnerId]) {
+    const account = props.investorAccounts.find((item) => item.partnerId === partnerId);
+    credentialDrafts.value[partnerId] = {
+      username: account?.username || '',
+      password: account?.password || '',
+    };
   }
+
+  return credentialDrafts.value[partnerId];
+};
+
+const handleCredentialInput = (partnerId: string, field: 'username' | 'password', value: string) => {
+  credentialDrafts.value[partnerId] = {
+    ...getDraft(partnerId),
+    [field]: value,
+  };
+};
+
+const handleSaveCredential = (partner: Partner) => {
+  const draft = getDraft(partner.id);
+  const username = draft.username.trim();
+  const password = draft.password.trim();
+
+  if (!username || !password) {
+    emit('add-toast', 'Missing Login', 'Username and password are required for investor access.', 'error');
+    return;
+  }
+
+  if (password.length < 4) {
+    emit('add-toast', 'Weak Password', 'Investor password must be at least 4 characters.', 'error');
+    return;
+  }
+
+  emit('save-investor-account', {
+    partnerId: partner.id,
+    username,
+    password,
+  });
+};
+
+const togglePasswordVisibility = (partnerId: string) => {
+  visiblePasswords.value = {
+    ...visiblePasswords.value,
+    [partnerId]: !visiblePasswords.value[partnerId],
+  };
 };
 </script>
 
@@ -207,7 +295,7 @@ const handleDelete = (id: string, name: string) => {
         </div>
 
         <!-- Create Partner Form -->
-        <form @submit.prevent="handleCreatePartner" class="p-4 bg-slate-50 dark:bg-zinc-850 rounded-xl space-y-3 text-xs border border-slate-100 dark:border-zinc-800">
+        <form @submit.prevent="handleCreatePartner" class="p-4 bg-slate-50 dark:bg-zinc-950/40 rounded-xl space-y-3 text-xs border border-slate-100 dark:border-zinc-800">
           <p class="text-[10px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Add New Stakeholder</p>
           <div class="grid grid-cols-12 gap-2">
             <input
@@ -215,9 +303,9 @@ const handleDelete = (id: string, name: string) => {
               required
               placeholder="Partner full name"
               v-model="partnerName"
-              class="col-span-8 p-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-850 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 font-semibold"
+              class="col-span-12 sm:col-span-8 p-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-850 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 font-semibold"
             />
-            <div class="col-span-4 relative">
+            <div class="col-span-12 sm:col-span-4 relative">
               <input
                 type="number"
                 required
@@ -228,6 +316,33 @@ const handleDelete = (id: string, name: string) => {
                 class="w-full p-2 pr-5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-mono font-bold text-right focus:outline-none focus:border-indigo-500"
               />
               <span class="absolute right-2 top-2.5 text-zinc-400 font-bold text-[11px]">%</span>
+            </div>
+            <input
+              type="text"
+              required
+              placeholder="Investor username"
+              v-model="investorUsername"
+              autocomplete="off"
+              class="col-span-12 sm:col-span-6 p-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-850 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 font-semibold"
+            />
+            <div class="col-span-12 sm:col-span-6 relative">
+              <input
+                :type="showNewInvestorPassword ? 'text' : 'password'"
+                required
+                placeholder="Investor password"
+                v-model="investorPassword"
+                autocomplete="new-password"
+                class="w-full p-2 pr-10 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-850 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 font-semibold"
+              />
+              <button
+                type="button"
+                @click="showNewInvestorPassword = !showNewInvestorPassword"
+                class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-indigo-500 rounded-md transition-colors"
+                :title="showNewInvestorPassword ? 'Hide password' : 'Show password'"
+              >
+                <EyeOff v-if="showNewInvestorPassword" class="h-4 w-4" />
+                <Eye v-else class="h-4 w-4" />
+              </button>
             </div>
           </div>
           <button
@@ -244,33 +359,77 @@ const handleDelete = (id: string, name: string) => {
           <div v-if="partners.length === 0" class="py-8 text-center text-zinc-400 text-xs">
             No partners registered yet. Add them above!
           </div>
-          <div v-else v-for="p in partners" :key="p.id" class="p-3 border border-slate-200 dark:border-zinc-800 rounded-lg flex items-center justify-between text-xs hover:border-zinc-300 transition-colors">
-            <div>
-              <p class="font-bold text-slate-800 dark:text-zinc-200">{{ p.name }}</p>
-              <p class="text-[10px] text-zinc-400 mt-0.5 font-semibold uppercase tracking-wide">Partner Stakeholder</p>
-            </div>
-
-            <div class="flex items-center gap-3">
-              <!-- Adjustable weight inputs -->
-              <div class="relative w-20">
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  :value="p.sharePercentage"
-                  @input="handleShareChange(p.id, Number(($event.target as HTMLInputElement).value))"
-                  class="w-full p-1.5 pr-5 bg-zinc-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-md font-mono font-bold text-right text-zinc-850"
-                />
-                <span class="absolute right-1.5 top-1.5 text-zinc-400 text-[10px] font-bold">%</span>
+          <div v-else v-for="p in partners" :key="p.id" class="p-3 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs hover:border-zinc-300 transition-colors space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p class="font-bold text-slate-800 dark:text-zinc-200">{{ p.name }}</p>
+                <p class="text-[10px] text-zinc-400 mt-0.5 font-semibold uppercase tracking-wide">Partner Stakeholder</p>
               </div>
 
-              <button
-                @click="handleDelete(p.id, p.name)"
-                class="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-zinc-400 hover:text-rose-600 rounded-md transition-colors"
-                title="Remove Partner"
-              >
-                <Trash2 class="h-3.5 w-3.5" />
-              </button>
+              <div class="flex items-center gap-3">
+                <div class="relative w-20">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    :value="p.sharePercentage"
+                    @input="handleShareChange(p.id, Number(($event.target as HTMLInputElement).value))"
+                    class="w-full p-1.5 pr-5 bg-zinc-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-md font-mono font-bold text-right text-zinc-850 dark:text-zinc-100"
+                  />
+                  <span class="absolute right-1.5 top-1.5 text-zinc-400 text-[10px] font-bold">%</span>
+                </div>
+
+                <button
+                  @click="handleDelete(p.id, p.name)"
+                  class="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-zinc-400 hover:text-rose-600 rounded-md transition-colors"
+                  title="Remove Partner"
+                >
+                  <Trash2 class="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div class="rounded-lg bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800 p-3 space-y-2">
+              <div class="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
+                <KeyRound class="h-3.5 w-3.5 text-indigo-500" />
+                Investor Login
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                <input
+                  type="text"
+                  :value="getDraft(p.id).username"
+                  @input="handleCredentialInput(p.id, 'username', ($event.target as HTMLInputElement).value)"
+                  placeholder="Username"
+                  autocomplete="off"
+                  class="sm:col-span-5 p-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-850 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 font-semibold"
+                />
+                <div class="sm:col-span-5 relative">
+                  <input
+                    :type="visiblePasswords[p.id] ? 'text' : 'password'"
+                    :value="getDraft(p.id).password"
+                    @input="handleCredentialInput(p.id, 'password', ($event.target as HTMLInputElement).value)"
+                    placeholder="Password"
+                    autocomplete="new-password"
+                    class="w-full p-2 pr-10 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-850 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 font-semibold"
+                  />
+                  <button
+                    type="button"
+                    @click="togglePasswordVisibility(p.id)"
+                    class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-indigo-500 rounded-md transition-colors"
+                    :title="visiblePasswords[p.id] ? 'Hide password' : 'Show password'"
+                  >
+                    <EyeOff v-if="visiblePasswords[p.id]" class="h-4 w-4" />
+                    <Eye v-else class="h-4 w-4" />
+                  </button>
+                </div>
+                <button
+                  @click="handleSaveCredential(p)"
+                  class="sm:col-span-2 py-2 px-3 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition-colors"
+                  title="Save investor login"
+                >
+                  <Save class="h-3.5 w-3.5" /> Save
+                </button>
+              </div>
             </div>
           </div>
         </div>

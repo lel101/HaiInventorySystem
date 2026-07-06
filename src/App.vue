@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { 
   LayoutDashboard, 
   Package, 
@@ -27,7 +27,9 @@ import {
   StockMovement, 
   ToastMessage, 
   CartItem, 
-  PaymentMethod 
+  PaymentMethod,
+  AuthUser,
+  InvestorAccount
 } from './types';
 import { 
   INITIAL_PRODUCTS, 
@@ -46,6 +48,7 @@ import POS from './components/POS.vue';
 import Expenses from './components/Expenses.vue';
 import ProfitDistribution from './components/ProfitDistribution.vue';
 import Reports from './components/Reports.vue';
+import InvestorView from './components/InvestorView.vue';
 
 // ----------------------------------------------------
 // STATE INITIALIZATION
@@ -56,6 +59,10 @@ const expenses = ref<Expense[]>([]);
 const partners = ref<Partner[]>([]);
 const distributions = ref<ProfitDistributionRecord[]>([]);
 const stockMovements = ref<StockMovement[]>([]);
+const investorAccounts = ref<InvestorAccount[]>([]);
+const activeProducts = computed(() => products.value.filter((product) => !product.deletedAt));
+const activeExpenses = computed(() => expenses.value.filter((expense) => !expense.deletedAt));
+const activePartners = computed(() => partners.value.filter((partner) => !partner.deletedAt));
 
 const activeView = ref<string>('dashboard');
 const darkMode = ref<boolean>(false);
@@ -64,10 +71,18 @@ const currentTime = ref<string>('');
 const stateLoaded = ref<boolean>(false);
 const authReady = ref<boolean>(false);
 const isAuthenticated = ref<boolean>(false);
+const currentUser = ref<AuthUser | null>(null);
 const loginUsername = ref<string>('');
 const loginPassword = ref<string>('');
 const loginError = ref<string>('');
 const loginLoading = ref<boolean>(false);
+type DeleteTarget =
+  | { type: 'product'; id: string; title: string; details: string }
+  | { type: 'expense'; id: string; title: string; details: string }
+  | { type: 'partner'; id: string; title: string; details: string };
+const deleteTarget = ref<DeleteTarget | null>(null);
+const deleteConfirmationText = ref<string>('');
+const deleteLoading = ref<boolean>(false);
 
 let timeInterval: any = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -84,6 +99,7 @@ const getPersistedState = (): PersistedAppState => ({
 
 const queueServerSave = () => {
   if (!stateLoaded.value) return;
+  if (currentUser.value?.role === 'investor') return;
   if (saveTimer) clearTimeout(saveTimer);
 
   saveTimer = setTimeout(() => {
@@ -283,7 +299,70 @@ const updateTime = () => {
 
 const initializeAuthenticatedState = async () => {
   await loadState();
+  if (currentUser.value?.role === 'admin') {
+    await loadInvestorAccounts();
+  } else {
+    investorAccounts.value = [];
+  }
   stateLoaded.value = true;
+};
+
+const getAuthHeaders = (): HeadersInit => {
+  const token = localStorage.getItem('hai_auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const loadInvestorAccounts = async () => {
+  try {
+    const response = await fetch('/api/investor-accounts', {
+      headers: getAuthHeaders(),
+    });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload.error || 'Unable to load investor accounts.');
+    }
+
+    investorAccounts.value = Array.isArray(payload.accounts) ? payload.accounts : [];
+  } catch (error) {
+    console.warn('Investor account list unavailable.', error);
+    investorAccounts.value = [];
+  }
+};
+
+const saveInvestorAccount = async (partnerId: string, username: string, password: string) => {
+  const response = await fetch('/api/investor-accounts', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ partnerId, username, password }),
+  });
+  const payload = await response.json();
+
+  if (!response.ok || !payload.account) {
+    throw new Error(payload.error || 'Unable to save investor account.');
+  }
+
+  investorAccounts.value = [
+    payload.account,
+    ...investorAccounts.value.filter((account) => account.partnerId !== partnerId),
+  ];
+};
+
+const deleteInvestorAccount = async (partnerId: string) => {
+  const response = await fetch(`/api/investor-accounts/${encodeURIComponent(partnerId)}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || 'Unable to delete investor account.');
+  }
+
+  investorAccounts.value = investorAccounts.value.filter((account) => account.partnerId !== partnerId);
 };
 
 const restoreAuthSession = async () => {
@@ -299,7 +378,9 @@ const restoreAuthSession = async () => {
     const payload = await response.json();
 
     if (response.ok && payload.authenticated) {
+      currentUser.value = payload.user || { username: 'admin', role: 'admin' };
       isAuthenticated.value = true;
+      activeView.value = currentUser.value.role === 'investor' ? 'investor' : 'dashboard';
       await initializeAuthenticatedState();
       return;
     }
@@ -339,6 +420,17 @@ const removeToast = (id: string) => {
   toasts.value = toasts.value.filter(t => t.id !== id);
 };
 
+const openDeleteConfirmation = (target: DeleteTarget) => {
+  deleteTarget.value = target;
+  deleteConfirmationText.value = '';
+};
+
+const closeDeleteConfirmation = () => {
+  if (deleteLoading.value) return;
+  deleteTarget.value = null;
+  deleteConfirmationText.value = '';
+};
+
 const handleLogin = async () => {
   loginLoading.value = true;
   loginError.value = '';
@@ -362,7 +454,9 @@ const handleLogin = async () => {
     }
 
     localStorage.setItem('hai_auth_token', payload.token);
+    currentUser.value = payload.user || { username: loginUsername.value, role: 'admin' };
     isAuthenticated.value = true;
+    activeView.value = currentUser.value.role === 'investor' ? 'investor' : 'dashboard';
     loginPassword.value = '';
     await initializeAuthenticatedState();
   } catch (error) {
@@ -384,6 +478,7 @@ const handleLogout = async () => {
   }
 
   isAuthenticated.value = false;
+  currentUser.value = null;
   stateLoaded.value = false;
   loginUsername.value = '';
   loginPassword.value = '';
@@ -462,10 +557,12 @@ const handleDeleteProduct = (id: string) => {
   const item = products.value.find(p => p.id === id);
   if (!item) return;
 
-  if (window.confirm(`Are you sure you want to permanently delete SKU: ${item.sku} - ${item.name}?`)) {
-    products.value = products.value.filter(p => p.id !== id);
-    addToast('SKU Removed', `Permanently removed ${item.name} from directory catalog.`, 'info');
-  }
+  openDeleteConfirmation({
+    type: 'product',
+    id,
+    title: `Delete SKU ${item.sku}`,
+    details: `${item.name} will be removed from the active product catalog and kept archived.`,
+  });
 };
 
 const handleAdjustStock = (productId: string, quantity: number, type: 'In' | 'Out' | 'Adjustment', reason: string) => {
@@ -564,10 +661,12 @@ const handleDeleteExpense = (id: string) => {
   const item = expenses.value.find(e => e.id === id);
   if (!item) return;
 
-  if (window.confirm(`Delete expense of â‚±${item.amount.toFixed(2)} logged on ${new Date(item.date).toLocaleDateString()}?`)) {
-    expenses.value = expenses.value.filter(e => e.id !== id);
-    addToast('Record Purged', 'Expense ledger item removed.', 'info');
-  }
+  openDeleteConfirmation({
+    type: 'expense',
+    id,
+    title: 'Delete Expense Record',
+    details: `${item.category} expense for PHP ${item.amount.toFixed(2)} on ${new Date(item.date).toLocaleDateString()} will be removed from active ledgers and kept archived.`,
+  });
 };
 
 // ----------------------------------------------------
@@ -670,25 +769,84 @@ const handleCheckout = (
 // ----------------------------------------------------
 // PARTNERS & PROFIT DISTRIBUTIONS
 // ----------------------------------------------------
-const handleAddPartner = (newPartner: Omit<Partner, 'id'>) => {
+const handleAddPartner = async (newPartner: Omit<Partner, 'id'> & { investorUsername: string; investorPassword: string }) => {
   const partner: Partner = {
-    ...newPartner,
+    name: newPartner.name,
+    sharePercentage: newPartner.sharePercentage,
     id: `part-${Math.random().toString(36).substring(2, 9)}`
   };
   partners.value = [...partners.value, partner];
+
+  try {
+    await saveInvestorAccount(partner.id, newPartner.investorUsername, newPartner.investorPassword);
+    addToast('Investor Account Created', `${partner.name} can now sign in with their own read-only account.`, 'success');
+  } catch (error) {
+    partners.value = partners.value.filter(p => p.id !== partner.id);
+    addToast('Account Creation Failed', error instanceof Error ? error.message : 'Unable to create investor credentials.', 'error');
+  }
 };
 
 const handleUpdatePartnerShares = (updated: Partner[]) => {
-  partners.value = updated;
+  const updatedById = new Map(updated.map((partner) => [partner.id, partner]));
+  partners.value = partners.value.map((partner) => updatedById.get(partner.id) || partner);
 };
 
 const handleDeletePartner = (id: string) => {
   const item = partners.value.find(p => p.id === id);
   if (!item) return;
 
-  if (window.confirm(`Remove ${item.name} from Equity Distribution Registry?`)) {
-    partners.value = partners.value.filter(p => p.id !== id);
-    addToast('Registry Cleared', 'Partner purged from equity distribution records.', 'info');
+  openDeleteConfirmation({
+    type: 'partner',
+    id,
+    title: `Remove ${item.name}`,
+    details: 'This will remove the shareholder and investor login from active use while keeping an archived record.',
+  });
+};
+
+const handleSaveInvestorAccount = async (payload: { partnerId: string; username: string; password: string }) => {
+  try {
+    await saveInvestorAccount(payload.partnerId, payload.username, payload.password);
+    addToast('Investor Account Updated', 'Investor login credentials saved.', 'success');
+  } catch (error) {
+    addToast('Account Update Failed', error instanceof Error ? error.message : 'Unable to save investor credentials.', 'error');
+  }
+};
+
+const executeConfirmedDelete = async () => {
+  if (!deleteTarget.value || deleteConfirmationText.value !== 'DELETE') return;
+
+  deleteLoading.value = true;
+  const target = deleteTarget.value;
+
+  try {
+    if (target.type === 'product') {
+      const item = products.value.find(p => p.id === target.id);
+      const deletedAt = new Date().toISOString();
+      products.value = products.value.map(p => p.id === target.id ? { ...p, deletedAt } : p);
+      addToast('SKU Archived', item ? `${item.name} was soft deleted from the active catalog.` : 'Product archived.', 'info');
+    }
+
+    if (target.type === 'expense') {
+      const deletedAt = new Date().toISOString();
+      expenses.value = expenses.value.map(e => e.id === target.id ? { ...e, deletedAt } : e);
+      addToast('Record Archived', 'Expense ledger item was soft deleted.', 'info');
+    }
+
+    if (target.type === 'partner') {
+      const deletedAt = new Date().toISOString();
+      partners.value = partners.value.map(p => p.id === target.id ? { ...p, deletedAt } : p);
+      try {
+        await deleteInvestorAccount(target.id);
+      } catch (error) {
+        console.warn('Unable to remove investor account.', error);
+      }
+      addToast('Registry Archived', 'Partner and investor login were soft deleted.', 'info');
+    }
+
+    deleteTarget.value = null;
+    deleteConfirmationText.value = '';
+  } finally {
+    deleteLoading.value = false;
   }
 };
 
@@ -774,6 +932,67 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
   </div>
 
   <div v-else class="min-h-screen bg-[#F8FAFC] dark:bg-zinc-950 text-slate-900 dark:text-zinc-100 flex flex-col font-sans transition-colors duration-150">
+    <template v-if="currentUser?.role === 'investor'">
+      <header class="bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 px-4 sm:px-6 lg:px-8 py-4 print:hidden shadow-xs">
+        <div class="max-w-7xl mx-auto flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex items-center gap-3">
+            <div class="hai-logo-mark" aria-hidden="true">
+              <span class="hai-kana">はい</span>
+              <span class="hai-word">Hai</span>
+              <span class="hai-dot"></span>
+            </div>
+            <div>
+              <h1 class="text-base sm:text-lg font-black uppercase tracking-tight font-display text-slate-900 dark:text-zinc-50">Hai Store</h1>
+              <p class="text-[10px] font-black uppercase tracking-[0.2em] text-[#E81221]">Investor Portal</p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3 text-xs font-bold uppercase tracking-wider">
+            <div class="hidden md:flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-mono text-[11px] normal-case tracking-normal">
+              <Clock class="h-3.5 w-3.5 text-indigo-500" />
+              <span>{{ currentTime }}</span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">View Only</span>
+            </div>
+
+            <button
+              @click="darkMode = !darkMode"
+              class="p-2 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors"
+              title="Toggle theme mode"
+            >
+              <Sun v-if="darkMode" class="h-4 w-4" />
+              <Moon v-else class="h-4 w-4" />
+            </button>
+
+            <button
+              @click="handleLogout"
+              class="p-2 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-zinc-700 dark:hover:text-rose-400 transition-colors"
+              title="Sign out"
+            >
+              <LogOut class="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8" id="investor-workspace">
+        <div class="max-w-7xl mx-auto">
+          <InvestorView
+            :products="activeProducts"
+            :transactions="transactions"
+            :expenses="activeExpenses"
+            :partners="activePartners"
+            :distributions="distributions"
+            :partner-id="currentUser.partnerId"
+          />
+        </div>
+      </main>
+    </template>
+
+    <template v-else>
     
     <!-- HEADER BAR -->
     <header class="h-16 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 px-8 flex justify-between items-center shrink-0 print:hidden shadow-xs">
@@ -911,15 +1130,15 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
           <!-- RENDER ACTIVE SCREEN -->
           <Dashboard 
             v-if="activeView === 'dashboard'"
-            :products="products"
+            :products="activeProducts"
             :transactions="transactions"
-            :expenses="expenses"
+            :expenses="activeExpenses"
             @navigate="activeView = $event"
           />
 
           <Inventory
             v-else-if="activeView === 'inventory'"
-            :products="products"
+            :products="activeProducts"
             :stockMovements="stockMovements"
             @add-product="handleAddProduct"
             @update-product="handleUpdateProduct"
@@ -930,14 +1149,14 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
 
           <POS
             v-else-if="activeView === 'pos'"
-            :products="products"
+            :products="activeProducts"
             @checkout="handleCheckout"
             @add-toast="addToast"
           />
 
           <Expenses
             v-else-if="activeView === 'expenses'"
-            :expenses="expenses"
+            :expenses="activeExpenses"
             @add-expense="handleAddExpense"
             @delete-expense="handleDeleteExpense"
             @add-toast="addToast"
@@ -945,23 +1164,25 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
 
           <ProfitDistribution
             v-else-if="activeView === 'partners'"
-            :partners="partners"
+            :partners="activePartners"
             :distributions="distributions"
             :transactions="transactions"
-            :expenses="expenses"
+            :expenses="activeExpenses"
+            :investor-accounts="investorAccounts"
             @add-partner="handleAddPartner"
             @update-partner-shares="handleUpdatePartnerShares"
             @delete-partner="handleDeletePartner"
+            @save-investor-account="handleSaveInvestorAccount"
             @post-distribution="handlePostDistribution"
             @add-toast="addToast"
           />
 
           <Reports
             v-else-if="activeView === 'reports'"
-            :products="products"
+            :products="activeProducts"
             :transactions="transactions"
-            :expenses="expenses"
-            :partners="partners"
+            :expenses="activeExpenses"
+            :partners="activePartners"
             :distributions="distributions"
             @add-toast="addToast"
           />
@@ -969,6 +1190,82 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
         </div>
       </main>
     </div>
+    </template>
+
+    <!-- AWS-style delete confirmation modal -->
+    <Teleport to="body">
+      <div
+        v-if="deleteTarget"
+        class="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4"
+        id="delete-confirmation-modal"
+      >
+        <div class="w-full max-w-md bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl shadow-2xl overflow-hidden">
+          <div class="h-1 bg-rose-600"></div>
+          <div class="p-5 border-b border-slate-100 dark:border-zinc-800 flex items-start justify-between gap-4">
+            <div class="flex items-start gap-3">
+              <div class="mt-0.5 p-2 rounded-lg bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400">
+                <AlertCircle class="h-5 w-5" />
+              </div>
+              <div>
+                <h3 class="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-zinc-50 font-display">
+                  {{ deleteTarget.title }}
+                </h3>
+                <p class="mt-1 text-xs font-semibold leading-relaxed text-slate-500 dark:text-zinc-400">
+                  {{ deleteTarget.details }}
+                </p>
+              </div>
+            </div>
+            <button
+              @click="closeDeleteConfirmation"
+              :disabled="deleteLoading"
+              class="p-1.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 disabled:opacity-50"
+              title="Cancel"
+            >
+              <X class="h-4 w-4" />
+            </button>
+          </div>
+
+          <form @submit.prevent="executeConfirmedDelete" class="p-5 space-y-4 text-xs">
+            <div class="rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50/70 dark:bg-rose-950/20 p-3">
+              <p class="font-bold text-rose-700 dark:text-rose-300 leading-relaxed">
+                This removes the record from active views but keeps it archived in storage. Type <span class="font-black font-mono">DELETE</span> to confirm.
+              </p>
+            </div>
+
+            <div>
+              <label class="block mb-1 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
+                Confirmation
+              </label>
+              <input
+                v-model="deleteConfirmationText"
+                type="text"
+                autocomplete="off"
+                class="w-full p-2.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-900 dark:text-zinc-100 font-mono font-black focus:outline-none focus:border-rose-500"
+                placeholder="DELETE"
+              />
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-2 pt-2">
+              <button
+                type="button"
+                @click="closeDeleteConfirmation"
+                :disabled="deleteLoading"
+                class="flex-1 py-2.5 rounded-lg border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 font-black uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-zinc-900 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                :disabled="deleteConfirmationText !== 'DELETE' || deleteLoading"
+                class="flex-1 py-2.5 rounded-lg bg-rose-600 text-white font-black uppercase tracking-widest hover:bg-rose-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+              >
+                {{ deleteLoading ? 'Deleting' : 'Soft Delete' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- TOAST SYSTEM BENCH -->
     <div class="fixed bottom-5 right-5 z-55 flex flex-col gap-2 max-w-sm pointer-events-none" id="toasts-bench">
