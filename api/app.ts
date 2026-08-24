@@ -571,6 +571,12 @@ app.post('/api/investor-accounts', async (req, res) => {
       : null;
 
     if (existing.rowCount || recycledDeletedInvestor) {
+      const accountId = existing.rows[0]?.id || recycledDeletedInvestor?.id;
+      if (!accountId) {
+        res.status(500).json({ error: 'Investor account could not be identified for update' });
+        return;
+      }
+
       accountResult = await pool.query(
         `update admin_users
          set username = $1,
@@ -579,9 +585,9 @@ app.post('/api/investor-accounts', async (req, res) => {
              credential_password = $4,
              deleted_at = null,
              updated_at = now()
-         where id = $4
+         where id = $5
          returning id, username, partner_id, credential_password, updated_at, deleted_at`,
-        [username, passwordHash, partnerId, password, existing.rows[0]?.id || recycledDeletedInvestor.id]
+        [username, passwordHash, partnerId, password, accountId]
       );
     } else {
       accountResult = await pool.query(
