@@ -1,7 +1,8 @@
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
-import { readdir, readFile, rename, writeFile } from 'fs/promises';
+import { mkdir, readdir, readFile, rename, writeFile } from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import { Pool, PoolClient } from 'pg';
 import type {
@@ -73,7 +74,20 @@ const pool = new Pool({
 
 const app = express();
 const migrationsDir = path.join(process.cwd(), 'db', 'migrations');
-const guestCatalogPath = path.join(process.cwd(), 'public', 'catalog.json');
+const publicCatalogPath = path.join(process.cwd(), 'public', 'catalog.json');
+const serverlessCatalogPath = path.join(os.tmpdir(), 'hai-inventory', 'catalog.json');
+
+export const resolveGuestCatalogPath = (): string => {
+  const isServerlessRuntime = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY);
+  return isServerlessRuntime ? serverlessCatalogPath : publicCatalogPath;
+};
+
+const guestCatalogPath = resolveGuestCatalogPath();
+const guestCatalogDirectory = path.dirname(guestCatalogPath);
+
+const ensureGuestCatalogDirectory = async (): Promise<void> => {
+  await mkdir(guestCatalogDirectory, { recursive: true });
+};
 
 app.use(express.json({ limit: '10mb' }));
 app.use((req, _res, next) => {
@@ -670,6 +684,22 @@ app.post('/api/auth/logout', async (req, res) => {
   }
 });
 
+app.get('/catalog.json', async (_req, res) => {
+  try {
+    const catalog = await readFile(guestCatalogPath, 'utf8');
+    res.type('application/json').send(catalog);
+    return;
+  } catch {
+    try {
+      const fallbackCatalog = await readFile(publicCatalogPath, 'utf8');
+      res.type('application/json').send(fallbackCatalog);
+      return;
+    } catch {
+      res.status(404).json({ error: 'Catalog file is not available.' });
+    }
+  }
+});
+
 app.post('/api/guest-catalog/generate', async (req, res) => {
   const client = await pool.connect();
   try {
@@ -692,7 +722,8 @@ app.post('/api/guest-catalog/generate', async (req, res) => {
         ...(sizeStocks && Object.keys(sizeStocks).length ? { sizeStocks } : {}),
       }));
     const catalog = { generatedAt: new Date().toISOString(), products };
-    const temporaryPath = `${guestCatalogPath}.tmp`;
+    await ensureGuestCatalogDirectory();
+    const temporaryPath = path.join(guestCatalogDirectory, `catalog.json.${Date.now()}.tmp`);
     await writeFile(temporaryPath, `${JSON.stringify(catalog, null, 2)}\n`, 'utf8');
     await rename(temporaryPath, guestCatalogPath);
     res.json({ ok: true, generatedAt: catalog.generatedAt, productCount: products.length });

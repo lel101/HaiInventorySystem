@@ -1,6 +1,24 @@
 {
-  "generatedAt": "2026-09-19T13:58:02.328Z",
+  "generatedAt": "2026-09-19T14:10:46.117Z",
   "products": [
+    {
+      "id": "prod-xh2gs2s",
+      "sku": "OTH-JORD-968",
+      "name": "JORDAN DEJA SANDALS",
+      "category": "Footwear",
+      "brand": "",
+      "storePrice": 3000,
+      "currentStock": 1,
+      "image": "👟",
+      "imageUrl": "https://encrypted-tbn1.gstatic.com/shopping?q=tbn:ANd9GcR6bu2Na3RhqZEg-gxrfjZN8VYyxYoplezX2nHT4UCTOVQB7cPdSIdEhnw0cX97t9vztKvOLKmnQA7HhE0uT-CRj0V9yeTDMM21O2beV8AoayU1R5ChFu--qA",
+      "shoeGender": "Women",
+      "shoeSizes": [
+        36
+      ],
+      "sizeStocks": {
+        "36": 0
+      }
+    },
     {
       "id": "prod-8h8kf5y",
       "sku": "OTH-CARRHART-432",
@@ -10,7 +28,7 @@
       "storePrice": 380,
       "currentStock": 6,
       "image": "👕",
-      "imageUrl": "https://plus.unsplash.com/premium_photo-1718913936342-eaafff98834b?q=80&w=1172&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+      "imageUrl": "https://d8iqbmvu05s9c.cloudfront.net/ajprhqgqg1otf7d5sm7u3brf27gv",
       "apparelSizes": [
         "XS",
         "L",
