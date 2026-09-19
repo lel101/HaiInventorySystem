@@ -1,22 +1,23 @@
 {
-  "generatedAt": "2026-09-19T14:24:35.084Z",
+  "generatedAt": "2026-09-19T15:46:48.087Z",
   "products": [
     {
-      "id": "prod-xh2gs2s",
-      "sku": "OTH-JORD-968",
+      "id": "prod-c1sfrtj",
+      "sku": "OTH-JORD-434",
       "name": "JORDAN DEJA SANDALS",
       "category": "Footwear",
       "brand": "",
+      "srpPrice": 4995,
       "storePrice": 3000,
       "currentStock": 1,
       "image": "👟",
-      "imageUrl": "https://encrypted-tbn1.gstatic.com/shopping?q=tbn:ANd9GcR6bu2Na3RhqZEg-gxrfjZN8VYyxYoplezX2nHT4UCTOVQB7cPdSIdEhnw0cX97t9vztKvOLKmnQA7HhE0uT-CRj0V9yeTDMM21O2beV8AoayU1R5ChFu--qA",
+      "imageUrl": "https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcRh1ycbhYV4oMb0LXrOJXq0c123EcTdzBMmmdd_lmaJTYih8g",
       "shoeGender": "Women",
       "shoeSizes": [
         36
       ],
       "sizeStocks": {
-        "36": 0
+        "36": 1
       }
     },
     {
@@ -25,24 +26,10 @@
       "name": "Tshirt",
       "category": "Apparel",
       "brand": "Carharrt",
-      "storePrice": 380,
-      "currentStock": 6,
-      "image": "👕",
-      "imageUrl": "https://static.vecteezy.com/system/resources/thumbnails/070/788/320/small/beige-t-shirt-mockup-front-and-back-views-high-resolution-template-photo.jpeg",
-      "apparelSizes": [
-        "XS",
-        "L",
-        "XXL",
-        "XL",
-        "M"
-      ],
-      "sizeStocks": {
-        "L": 1,
-        "M": 1,
-        "XL": 1,
-        "XS": 2,
-        "XXL": 1
-      }
+      "srpPrice": 350,
+      "storePrice": 350,
+      "currentStock": 7,
+      "image": "👕"
     },
     {
       "id": "prod-41qwk0m",
@@ -50,20 +37,10 @@
       "name": "T-shirt",
       "category": "Apparel",
       "brand": "Bape",
-      "storePrice": 380,
-      "currentStock": 7,
-      "image": "👕",
-      "imageUrl": "https://plus.unsplash.com/premium_photo-1718913936342-eaafff98834b?q=80&w=1172&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
-      "apparelSizes": [
-        "XXL",
-        "XL",
-        "L"
-      ],
-      "sizeStocks": {
-        "L": 1,
-        "XL": 1,
-        "XXL": 5
-      }
+      "srpPrice": 350,
+      "storePrice": 350,
+      "currentStock": 10,
+      "image": "👕"
     },
     {
       "id": "prod-kdjob3h",
@@ -71,33 +48,10 @@
       "name": "Sock",
       "category": "Footwear",
       "brand": "",
-      "storePrice": 160,
+      "srpPrice": 135,
+      "storePrice": 135,
       "currentStock": 18,
-      "image": "🧦",
-      "imageUrl": "https://plus.unsplash.com/premium_photo-1684952850099-396e7183bc6c?q=80&w=1331&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
-      "shoeGender": "Men",
-      "shoeSizes": [
-        36,
-        37,
-        39,
-        40,
-        41,
-        43,
-        44,
-        46,
-        45
-      ],
-      "sizeStocks": {
-        "36": 10,
-        "37": 1,
-        "39": 1,
-        "40": 1,
-        "41": 1,
-        "43": 1,
-        "44": 1,
-        "45": 1,
-        "46": 1
-      }
+      "image": "🧦"
     },
     {
       "id": "prod-tfoaryu",
@@ -105,10 +59,11 @@
       "name": "Close Cap",
       "category": "Headwear",
       "brand": "",
-      "storePrice": 380,
+      "srpPrice": 350,
+      "storePrice": 350,
       "currentStock": 8,
       "image": "🧢",
-      "imageUrl": "https://plus.unsplash.com/premium_photo-1680859126205-1c593bb4f9e8?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+      "imageUrl": "https://down-ph.img.susercontent.com/file/ph-11134207-820ld-mrk5z5ok48i021"
     },
     {
       "id": "prod-4w481ni",
@@ -116,10 +71,10 @@
       "name": "Mesh Short",
       "category": "Apparel",
       "brand": "",
-      "storePrice": 350,
-      "currentStock": 18,
-      "image": "📦",
-      "imageUrl": "https://images.unsplash.com/photo-1783306224268-4f8e01eda086?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+      "srpPrice": 330,
+      "storePrice": 330,
+      "currentStock": 8,
+      "image": "📦"
     },
     {
       "id": "prod-rgxkz08",
@@ -127,10 +82,10 @@
       "name": "Snapback Cap",
       "category": "Headwear",
       "brand": "",
-      "storePrice": 380,
+      "srpPrice": 350,
+      "storePrice": 350,
       "currentStock": 15,
-      "image": "🧢",
-      "imageUrl": "https://plus.unsplash.com/premium_photo-1755034663784-a0127bdc89a1?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+      "image": "🧢"
     }
   ]
 }

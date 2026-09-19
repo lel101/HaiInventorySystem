@@ -29,7 +29,8 @@ import {
   CartItem, 
   PaymentMethod,
   AuthUser,
-  InvestorAccount
+  InvestorAccount,
+  ConsignmentWithdrawal
 } from './types';
 import { 
   INITIAL_PRODUCTS, 
@@ -59,6 +60,7 @@ const transactions = ref<Transaction[]>([]);
 const expenses = ref<Expense[]>([]);
 const partners = ref<Partner[]>([]);
 const distributions = ref<ProfitDistributionRecord[]>([]);
+const consignmentWithdrawals = ref<ConsignmentWithdrawal[]>([]);
 const stockMovements = ref<StockMovement[]>([]);
 const investorAccounts = ref<InvestorAccount[]>([]);
 const activeProducts = computed(() => products.value.filter((product) => !product.deletedAt));
@@ -115,6 +117,7 @@ const getPersistedState = (): PersistedAppState => ({
   expenses: expenses.value,
   partners: partners.value,
   distributions: distributions.value,
+  consignmentWithdrawals: consignmentWithdrawals.value,
   stockMovements: stockMovements.value,
   darkMode: darkMode.value,
 });
@@ -137,6 +140,7 @@ const applyRemoteState = (state: Partial<PersistedAppState>) => {
   expenses.value = Array.isArray(state.expenses) ? state.expenses : INITIAL_EXPENSES;
   partners.value = Array.isArray(state.partners) ? state.partners : INITIAL_PARTNERS;
   distributions.value = Array.isArray(state.distributions) ? state.distributions : INITIAL_DISTRIBUTIONS;
+  consignmentWithdrawals.value = Array.isArray(state.consignmentWithdrawals) ? state.consignmentWithdrawals : [];
   stockMovements.value = Array.isArray(state.stockMovements) ? state.stockMovements : INITIAL_STOCK_MOVEMENTS;
   darkMode.value = !!state.darkMode;
 };
@@ -233,6 +237,18 @@ const loadLocalState = () => {
     distributions.value = INITIAL_DISTRIBUTIONS;
   }
 
+  // Consignment withdrawals
+  const savedWithdrawals = localStorage.getItem('biz_consignment_withdrawals');
+  if (savedWithdrawals) {
+    try {
+      consignmentWithdrawals.value = JSON.parse(savedWithdrawals);
+    } catch (e) {
+      consignmentWithdrawals.value = [];
+    }
+  } else {
+    consignmentWithdrawals.value = [];
+  }
+
   // Stock movements
   const savedMvs = localStorage.getItem('biz_stock_movements');
   if (savedMvs && localStorage.getItem('biz_products')) {
@@ -286,6 +302,11 @@ watch(partners, (newVal) => {
 
 watch(distributions, (newVal) => {
   localStorage.setItem('biz_distributions', JSON.stringify(newVal));
+  queueServerSave();
+}, { deep: true });
+
+watch(consignmentWithdrawals, (newVal) => {
+  localStorage.setItem('biz_consignment_withdrawals', JSON.stringify(newVal));
   queueServerSave();
 }, { deep: true });
 
@@ -893,6 +914,19 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
   distributions.value = [record, ...distributions.value];
 };
 
+const handleAddConsignmentWithdrawal = (payload: { month: string; amount: number; note: string }) => {
+  const record: ConsignmentWithdrawal = {
+    id: `cw-${Math.random().toString(36).substring(2, 9)}`,
+    month: payload.month,
+    amount: payload.amount,
+    note: payload.note || 'Consignment profit withdrawal',
+    createdAt: new Date().toISOString(),
+  };
+
+  consignmentWithdrawals.value = [record, ...consignmentWithdrawals.value];
+  addToast('Consignment Withdrawal', `${formatPHP(payload.amount)} recorded for ${payload.month}.`, 'success');
+};
+
 const handleGenerateGuestCatalog = async () => {
   try {
     // Save pending catalog edits before creating the public snapshot.
@@ -1188,6 +1222,7 @@ const handleGenerateGuestCatalog = async () => {
             :products="activeProducts"
             :transactions="ownedTransactions"
             :consignment-transactions="consignmentTransactions"
+            :consignment-withdrawals="consignmentWithdrawals"
             :expenses="activeExpenses"
             @navigate="activeView = $event"
           />
@@ -1224,13 +1259,16 @@ const handleGenerateGuestCatalog = async () => {
             :partners="activePartners"
             :distributions="distributions"
             :transactions="ownedTransactions"
+            :consignment-transactions="consignmentTransactions"
             :expenses="activeExpenses"
             :investor-accounts="investorAccounts"
+            :consignment-withdrawals="consignmentWithdrawals"
             @add-partner="handleAddPartner"
             @update-partner-shares="handleUpdatePartnerShares"
             @delete-partner="handleDeletePartner"
             @save-investor-account="handleSaveInvestorAccount"
             @post-distribution="handlePostDistribution"
+            @add-consignment-withdrawal="handleAddConsignmentWithdrawal"
             @add-toast="addToast"
           />
 
@@ -1238,6 +1276,8 @@ const handleGenerateGuestCatalog = async () => {
             v-else-if="activeView === 'reports'"
             :products="activeProducts"
             :transactions="ownedTransactions"
+            :consignment-transactions="consignmentTransactions"
+            :consignment-withdrawals="consignmentWithdrawals"
             :expenses="activeExpenses"
             :partners="activePartners"
             :distributions="distributions"

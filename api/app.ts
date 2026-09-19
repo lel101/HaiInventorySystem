@@ -7,6 +7,7 @@ import path from 'path';
 import { Pool, PoolClient } from 'pg';
 import type {
   AuthUser,
+  ConsignmentWithdrawal,
   Expense,
   InvestorAccount,
   Partner,
@@ -22,6 +23,7 @@ interface PersistedAppState {
   expenses: Expense[];
   partners: Partner[];
   distributions: ProfitDistributionRecord[];
+  consignmentWithdrawals: ConsignmentWithdrawal[];
   stockMovements: StockMovement[];
   darkMode: boolean;
 }
@@ -193,6 +195,7 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
     partnersResult,
     distributionsResult,
     distributionItemsResult,
+    consignmentWithdrawalsResult,
     settingsResult,
   ] = await Promise.all([
     client.query('select * from products order by created_at desc'),
@@ -203,6 +206,7 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
     client.query('select * from partners order by name asc'),
     client.query('select * from profit_distributions order by month desc, created_at desc'),
     client.query('select * from profit_distribution_items order by id asc'),
+    client.query('select * from consignment_withdrawals order by month desc, created_at desc'),
     client.query('select key, value from app_settings'),
   ]);
 
@@ -250,6 +254,7 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
       supplier: row.supplier,
       costPrice: toNumber(row.cost_price),
       sellingPrice: toNumber(row.selling_price),
+      srpPrice: toNumber(row.srp_price) || toNumber(row.store_price) || toNumber(row.selling_price),
       storePrice: toNumber(row.store_price) || toNumber(row.selling_price),
       currentStock: toNumber(row.current_stock),
       minimumStock: toNumber(row.minimum_stock),
@@ -263,6 +268,13 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
       status: row.status,
       createdAt: toIsoString(row.created_at),
       deletedAt: toOptionalIsoString(row.deleted_at),
+    })),
+    consignmentWithdrawals: consignmentWithdrawalsResult.rows.map((row) => ({
+      id: row.id,
+      month: row.month,
+      amount: toNumber(row.amount),
+      note: row.note || 'Consignment profit withdrawal',
+      createdAt: toIsoString(row.created_at),
     })),
     transactions: transactionsResult.rows.map((row) => ({
       id: row.id,
@@ -324,6 +336,7 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
   try {
     await client.query('delete from profit_distribution_items');
     await client.query('delete from profit_distributions');
+    await client.query('delete from consignment_withdrawals');
     await client.query('delete from transaction_items');
     await client.query('delete from transactions');
     await client.query('delete from stock_movements');
@@ -335,9 +348,9 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
       await client.query(
         `insert into products (
           id, sku, barcode, name, description, category, brand, supplier, cost_price,
-          selling_price, store_price, current_stock, minimum_stock, image, image_url, apparel_sizes,
+          selling_price, srp_price, store_price, current_stock, minimum_stock, image, image_url, apparel_sizes,
           shoe_gender, shoe_sizes, size_stocks, inventory_type, status, created_at, deleted_at
-        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
         [
           product.id,
           product.sku,
@@ -349,6 +362,7 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
           product.supplier || '',
           product.costPrice,
           product.sellingPrice,
+          product.srpPrice ?? product.storePrice ?? product.sellingPrice,
           product.storePrice || product.sellingPrice,
           product.currentStock,
           product.minimumStock,
@@ -477,6 +491,21 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
           [distribution.id, item.partnerId, item.partnerName, item.percentage, item.amount]
         );
       }
+    }
+
+    for (const withdrawal of state.consignmentWithdrawals || []) {
+      await client.query(
+        `insert into consignment_withdrawals (
+          id, month, amount, note, created_at
+        ) values ($1, $2, $3, $4, $5)`,
+        [
+          withdrawal.id,
+          withdrawal.month,
+          withdrawal.amount,
+          withdrawal.note || 'Consignment profit withdrawal',
+          withdrawal.createdAt,
+        ]
+      );
     }
 
     await client.query(
@@ -716,8 +745,8 @@ app.post('/api/guest-catalog/generate', async (req, res) => {
     const state = await loadRelationalState(client);
     const products = state.products
       .filter((product) => !product.deletedAt && product.currentStock > 0)
-      .map(({ id, sku, name, category, brand, storePrice, sellingPrice, currentStock, image, imageUrl, apparelSizes, shoeGender, shoeSizes, sizeStocks }) => ({
-        id, sku, name, category, brand, storePrice: storePrice || sellingPrice, currentStock, image,
+      .map(({ id, sku, name, category, brand, srpPrice, storePrice, sellingPrice, currentStock, image, imageUrl, apparelSizes, shoeGender, shoeSizes, sizeStocks }) => ({
+        id, sku, name, category, brand, srpPrice: srpPrice || storePrice || sellingPrice, storePrice: storePrice || sellingPrice, currentStock, image,
         ...(imageUrl ? { imageUrl } : {}),
         ...(apparelSizes?.length ? { apparelSizes } : {}),
         ...(shoeGender ? { shoeGender } : {}),

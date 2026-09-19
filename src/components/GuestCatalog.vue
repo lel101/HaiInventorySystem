@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { PackageSearch, RefreshCw } from '@lucide/vue';
-import { formatPHP } from '../utils';
+import { formatPHP, getGuestPriceDisplay } from '../utils';
 
 interface GuestProduct {
   id: string;
@@ -9,6 +9,7 @@ interface GuestProduct {
   name: string;
   category: string;
   brand: string;
+  srpPrice?: number;
   storePrice: number;
   currentStock: number;
   image?: string;
@@ -25,6 +26,8 @@ const loading = ref(true);
 const error = ref('');
 const search = ref('');
 const category = ref('All');
+const selectedProduct = ref<GuestProduct | null>(null);
+const zoomLevel = ref(1);
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 const categories = computed(() => ['All', ...new Set(products.value.map((product) => product.category))]);
@@ -50,6 +53,20 @@ const loadCatalog = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const openProductImage = (product: GuestProduct) => {
+  selectedProduct.value = product;
+  zoomLevel.value = 1;
+};
+
+const closeProductImage = () => {
+  selectedProduct.value = null;
+  zoomLevel.value = 1;
+};
+
+const adjustZoom = (delta: number) => {
+  zoomLevel.value = Math.min(3, Math.max(1, Number((zoomLevel.value + delta).toFixed(1))));
 };
 
 onMounted(() => {
@@ -95,9 +112,9 @@ onUnmounted(() => {
       </div>
       <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
         <article v-for="product in visibleProducts" :key="product.id" class="bg-white rounded-xl overflow-hidden border border-slate-200 shadow-sm">
-          <div class="h-48 bg-slate-100 flex items-center justify-center overflow-hidden">
-            <img v-if="product.imageUrl" :src="product.imageUrl" :alt="product.name" class="w-full h-full object-cover" />
-            <span v-else class="text-6xl">{{ product.image || '📦' }}</span>
+          <div class="h-64 bg-white flex items-center justify-center overflow-visible cursor-zoom-in" @click="openProductImage(product)">
+            <img v-if="product.imageUrl" :src="product.imageUrl" :alt="product.name" class="w-full h-full object-contain p-2" />
+            <span v-else class="text-8xl leading-none">{{ product.image || '📦' }}</span>
           </div>
           <div class="p-4">
             <p class="text-[10px] font-bold uppercase tracking-wider text-indigo-600">{{ product.category }}<span v-if="product.brand"> · {{ product.brand }}</span></p>
@@ -107,12 +124,49 @@ onUnmounted(() => {
               <span v-else>{{ product.shoeGender || 'EU' }} EU: <template v-for="(size, index) in product.shoeSizes" :key="size">{{ index ? ', ' : '' }}{{ size }} ({{ product.sizeStocks?.[String(size)] || 0 }})</template></span>
             </div>
             <div class="mt-4 flex items-end justify-between gap-2">
-              <strong class="text-lg">{{ formatPHP(product.storePrice) }}</strong>
+              <div>
+                <div v-if="getGuestPriceDisplay(product).hasDiscount" class="flex items-center gap-2 mb-1">
+                  <span class="text-[10px] text-slate-400 line-through">{{ formatPHP(getGuestPriceDisplay(product).originalPrice) }}</span>
+                  <span class="rounded bg-rose-100 px-1.5 py-0.5 text-[9px] font-black uppercase text-rose-600">
+                    Save {{ getGuestPriceDisplay(product).discountPercent }}%
+                  </span>
+                </div>
+                <strong class="text-lg">{{ formatPHP(getGuestPriceDisplay(product).currentPrice) }}</strong>
+              </div>
               <span class="text-[10px] font-bold text-emerald-600 uppercase">{{ product.currentStock }} Available</span>
             </div>
           </div>
         </article>
       </div>
     </section>
+
+    <div v-if="selectedProduct" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4" @click="closeProductImage">
+      <div class="relative w-full max-w-4xl overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-2xl" @click.stop>
+        <button @click="closeProductImage" class="absolute right-3 top-3 z-10 rounded-full bg-slate-950/70 px-3 py-1 text-xs font-bold text-white hover:bg-slate-800">Close</button>
+        <div class="flex items-center justify-center bg-slate-950 p-6 sm:p-10">
+          <div class="overflow-auto max-h-[72vh] w-full flex items-center justify-center">
+            <img
+              v-if="selectedProduct.imageUrl"
+              :src="selectedProduct.imageUrl"
+              :alt="selectedProduct.name"
+              :style="{ transform: `scale(${zoomLevel})`, transition: 'transform 0.2s ease' }"
+              class="max-h-[72vh] max-w-full object-contain rounded-xl"
+            />
+            <span v-else class="text-[8rem]" :style="{ transform: `scale(${zoomLevel})`, transition: 'transform 0.2s ease' }">{{ selectedProduct.image || '📦' }}</span>
+          </div>
+        </div>
+        <div class="flex items-center justify-between gap-3 border-t border-slate-800 bg-slate-950 px-4 py-3 text-white">
+          <div>
+            <p class="text-[10px] font-bold uppercase tracking-wider text-indigo-300">{{ selectedProduct.category }}</p>
+            <h3 class="text-base font-bold">{{ selectedProduct.name }}</h3>
+          </div>
+          <div class="flex items-center gap-2">
+            <button @click="adjustZoom(-0.2)" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-bold hover:bg-slate-800">-</button>
+            <span class="min-w-12 text-center text-xs font-bold uppercase tracking-wider text-slate-300">{{ zoomLevel.toFixed(1) }}x</span>
+            <button @click="adjustZoom(0.2)" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-bold hover:bg-slate-800">+</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 </template>

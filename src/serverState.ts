@@ -5,6 +5,7 @@ import {
   ProfitDistributionRecord,
   StockMovement,
   Transaction,
+  ConsignmentWithdrawal,
 } from './types';
 
 export interface PersistedAppState {
@@ -13,6 +14,7 @@ export interface PersistedAppState {
   expenses: Expense[];
   partners: Partner[];
   distributions: ProfitDistributionRecord[];
+  consignmentWithdrawals: ConsignmentWithdrawal[];
   stockMovements: StockMovement[];
   darkMode: boolean;
 }

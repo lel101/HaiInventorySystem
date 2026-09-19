@@ -19,7 +19,7 @@ import {
   Globe2
 } from '@lucide/vue';
 import { Product, StockMovement } from '../types';
-import { formatPHP, generateSKU, generateBarcode, exportToCSV, parseCSV } from '../utils';
+import { formatPHP, generateSKU, generateBarcode, exportToCSV, parseCSV, getInventoryDisplayPricing } from '../utils';
 
 // Props & Emits
 const props = defineProps<{
@@ -43,6 +43,7 @@ const EMOJIS = ['👟', '👕', '🧢', '🧥', '🎒', '🧦', '🕶️', '🧣
 const searchQuery = ref('');
 const categoryFilter = ref('All');
 const statusFilter = ref('All');
+const inventoryTypeFilter = ref<'all' | 'owned' | 'consignment'>('owned');
 const activeTab = ref<'list' | 'history'>('list');
 
 // Pagination
@@ -67,6 +68,7 @@ const brand = ref('');
 const supplier = ref('');
 const costPrice = ref(0);
 const sellingPrice = ref(0);
+const srpPrice = ref(0);
 const storePrice = ref(0);
 const currentStock = ref(0);
 const minimumStock = ref(5);
@@ -100,6 +102,7 @@ const handleOpenAddModal = () => {
   supplier.value = '';
   costPrice.value = 0;
   sellingPrice.value = 0;
+  srpPrice.value = 0;
   storePrice.value = 0;
   currentStock.value = 0;
   minimumStock.value = 5;
@@ -124,8 +127,9 @@ const handleDuplicate = (product: Product) => {
   category.value = product.category;
   brand.value = product.brand;
   supplier.value = product.supplier;
-  costPrice.value = product.costPrice;
+  costPrice.value = product.inventoryType === 'consignment' ? 0 : product.costPrice;
   sellingPrice.value = product.sellingPrice;
+  srpPrice.value = product.srpPrice ?? product.storePrice ?? product.sellingPrice;
   storePrice.value = product.storePrice || product.sellingPrice;
   currentStock.value = product.currentStock;
   minimumStock.value = product.minimumStock;
@@ -150,8 +154,9 @@ const handleOpenEditModal = (product: Product) => {
   category.value = product.category;
   brand.value = product.brand;
   supplier.value = product.supplier;
-  costPrice.value = product.costPrice;
+  costPrice.value = product.inventoryType === 'consignment' ? 0 : product.costPrice;
   sellingPrice.value = product.sellingPrice;
+  srpPrice.value = product.srpPrice ?? product.storePrice ?? product.sellingPrice;
   storePrice.value = product.storePrice || product.sellingPrice;
   currentStock.value = product.currentStock;
   minimumStock.value = product.minimumStock;
@@ -187,6 +192,22 @@ const handleProductSubmit = () => {
     productFormError.value = `Size quantities total ${totalSizeStock}, but current stock is ${catalogStock}. They must match before saving.`;
     return;
   }
+  const normalizedCostPrice = inventoryType.value === 'consignment' ? 0 : Number(costPrice.value) || 0;
+  if (inventoryType.value === 'consignment') {
+    if (!Number(srpPrice.value) || Number(srpPrice.value) <= 0) {
+      productFormError.value = 'SRP Price is required for consignment items.';
+      return;
+    }
+  } else if (!Number(costPrice.value) || Number(costPrice.value) <= 0) {
+    productFormError.value = 'Cost Price is required for profit-sharing items.';
+    return;
+  }
+
+  if (!Number(sellingPrice.value) || Number(sellingPrice.value) <= 0) {
+    productFormError.value = 'Selling Price is required.';
+    return;
+  }
+
   const data = {
     sku: sku.value,
     barcode: barcode.value,
@@ -195,8 +216,11 @@ const handleProductSubmit = () => {
     category: category.value,
     brand: brand.value.trim(),
     supplier: supplier.value.trim(),
-    costPrice: Number(costPrice.value) || 0,
+    costPrice: normalizedCostPrice,
     sellingPrice: Number(sellingPrice.value) || 0,
+    srpPrice: inventoryType.value === 'consignment'
+      ? Number(srpPrice.value) || 0
+      : Number(srpPrice.value) || Number(storePrice.value) || Number(sellingPrice.value) || 0,
     storePrice: Number(storePrice.value) || Number(sellingPrice.value) || 0,
     currentStock: catalogStock,
     minimumStock: Number(minimumStock.value) || 0,
@@ -246,7 +270,7 @@ const handleExport = () => {
     p.category,
     p.brand,
     p.supplier,
-    p.costPrice.toString(),
+    (p.inventoryType === 'consignment' ? 0 : p.costPrice).toString(),
     p.sellingPrice.toString(),
     (p.storePrice || p.sellingPrice).toString(),
     p.currentStock.toString(),
@@ -294,6 +318,7 @@ const handleFileChange = (e: Event) => {
       const pSupplier = row[headers.indexOf('supplier')] || 'Unknown';
       const pCost = Number(row[headers.indexOf('cost price')]) || 0;
       const pSell = Number(row[headers.indexOf('selling price')]) || 0;
+      const pSrp = Number(row[headers.indexOf('srp price')]) || Number(row[headers.indexOf('srp')]) || 0;
       const pStore = Number(row[headers.indexOf('store price')]) || pSell;
       const pStock = Number(row[headers.indexOf('current stock')]) || 0;
       const pMin = Number(row[headers.indexOf('minimum stock')]) || 5;
@@ -314,6 +339,7 @@ const handleFileChange = (e: Event) => {
         supplier: pSupplier,
         costPrice: pCost,
         sellingPrice: pSell,
+        srpPrice: pSrp || pStore || pSell,
         storePrice: pStore,
         currentStock: pStock,
         minimumStock: pMin,
@@ -344,13 +370,14 @@ const filteredProducts = computed(() => {
       p.category.toLowerCase().includes(searchQuery.value.toLowerCase());
     
     const matchesCategory = categoryFilter.value === 'All' || p.category === categoryFilter.value;
+    const matchesInventoryOwnership = inventoryTypeFilter.value === 'all' || (p.inventoryType || 'owned') === inventoryTypeFilter.value;
     
     const matchesStatus = statusFilter.value === 'All' || 
       (statusFilter.value === 'In Stock' && p.currentStock > p.minimumStock) ||
       (statusFilter.value === 'Low Stock' && p.currentStock > 0 && p.currentStock <= p.minimumStock) ||
       (statusFilter.value === 'Out of Stock' && p.currentStock === 0);
 
-    return matchesSearch && matchesCategory && matchesStatus;
+    return matchesSearch && matchesCategory && matchesInventoryOwnership && matchesStatus;
   });
 });
 
@@ -478,6 +505,17 @@ const handleDelete = (id: string) => {
             <option v-for="cat in CATEGORIES" :key="cat" :value="cat">{{ cat }}</option>
           </select>
 
+          <!-- Ownership Filter -->
+          <select
+            v-model="inventoryTypeFilter"
+            @change="currentPage = 1"
+            class="text-xs bg-zinc-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700/80 rounded-lg py-2 px-3 text-zinc-700 dark:text-zinc-300 focus:outline-none focus:border-indigo-500 font-semibold"
+          >
+            <option value="owned">Profit Sharing</option>
+            <option value="consignment">Consignment</option>
+            <option value="all">All Ownership</option>
+          </select>
+
           <!-- Status Filter -->
           <select
             v-model="statusFilter"
@@ -592,8 +630,10 @@ const handleDelete = (id: string) => {
                 <div>
                   <span class="font-bold text-slate-900 dark:text-zinc-100">{{ formatPHP(p.sellingPrice) }}</span>
                 </div>
-                <div class="text-[10px] text-zinc-400 font-semibold">Cost: {{ formatPHP(p.costPrice) }}</div>
-                <div class="text-[10px] text-indigo-500 font-semibold">Store: {{ formatPHP(p.storePrice || p.sellingPrice) }}</div>
+                <div class="text-[10px] text-zinc-400 font-semibold">
+                  {{ getInventoryDisplayPricing(p).secondaryLabel }}: {{ formatPHP(getInventoryDisplayPricing(p).secondaryValue) }}
+                </div>
+                <div class="text-[10px] text-indigo-500 font-semibold">Store: {{ formatPHP(getInventoryDisplayPricing(p).storeValue) }}</div>
               </td>
 
               <!-- Stock -->
@@ -820,21 +860,22 @@ const handleDelete = (id: string) => {
             <div>
               <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Inventory Ownership</label>
               <div class="grid grid-cols-2 gap-2">
-                <label class="cursor-pointer">
-                  <input v-model="inventoryType" value="owned" type="radio" class="sr-only peer" />
+                <label class="cursor-pointer" :class="editingProduct ? 'pointer-events-none opacity-70' : ''">
+                  <input v-model="inventoryType" value="owned" type="radio" class="sr-only peer" :disabled="!!editingProduct" />
                   <span class="block p-3 rounded-lg border border-slate-200 dark:border-zinc-700 text-xs font-bold text-slate-600 dark:text-zinc-300 peer-checked:border-indigo-600 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 dark:peer-checked:bg-indigo-950/30">Owned / Profit Sharing</span>
                 </label>
-                <label class="cursor-pointer">
-                  <input v-model="inventoryType" value="consignment" type="radio" class="sr-only peer" />
+                <label class="cursor-pointer" :class="editingProduct ? 'pointer-events-none opacity-70' : ''">
+                  <input v-model="inventoryType" value="consignment" type="radio" class="sr-only peer" :disabled="!!editingProduct" />
                   <span class="block p-3 rounded-lg border border-slate-200 dark:border-zinc-700 text-xs font-bold text-slate-600 dark:text-zinc-300 peer-checked:border-amber-500 peer-checked:bg-amber-50 peer-checked:text-amber-700 dark:peer-checked:bg-amber-950/30">Consignment</span>
                 </label>
               </div>
-              <p class="mt-1 text-[10px] text-zinc-400">Consignment sales are excluded from partner profit sharing and investor access.</p>
+              <p v-if="editingProduct" class="mt-1 text-[10px] text-amber-600">Ownership is locked after the product is saved.</p>
+              <p v-else class="mt-1 text-[10px] text-zinc-400">Consignment sales are excluded from partner profit sharing and investor access.</p>
             </div>
 
             <!-- Pricing -->
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
+              <div v-if="inventoryType !== 'consignment'">
                 <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Cost Price (PHP) *</label>
                 <input
                   type="number"
@@ -843,6 +884,18 @@ const handleDelete = (id: string) => {
                   required
                   v-model="costPrice"
                   class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold"
+                />
+              </div>
+
+              <div v-else>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">SRP Price (PHP) *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  v-model="srpPrice"
+                  class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none font-bold"
                 />
               </div>
 
@@ -858,12 +911,11 @@ const handleDelete = (id: string) => {
                 />
               </div>
               <div>
-                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Store Price (PHP) *</label>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Store Price (PHP)</label>
                 <input
                   type="number"
                   step="0.01"
                   min="0"
-                  required
                   v-model="storePrice"
                   class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none font-bold"
                 />

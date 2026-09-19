@@ -5,13 +5,17 @@ import {
   ChevronRight,
   FileSpreadsheet
 } from '@lucide/vue';
-import { Product, Transaction, Expense, Partner, ProfitDistributionRecord } from '../types';
-import { formatPHP, exportToCSV } from '../utils';
+import { Product, Transaction, Expense, Partner, ProfitDistributionRecord, ConsignmentWithdrawal } from '../types';
+import { formatPHP, exportToCSV, buildInventoryAssetRows, buildConsignmentWithdrawalRows, filterInventoryByOwnership, filterPayoutRowsByOwnership } from '../utils';
+
+type ReportScope = 'profit' | 'consignment';
 
 // Props & Emits
 const props = defineProps<{
   products: Product[];
   transactions: Transaction[];
+  consignmentTransactions?: Transaction[];
+  consignmentWithdrawals?: ConsignmentWithdrawal[];
   expenses: Expense[];
   partners: Partner[];
   distributions: ProfitDistributionRecord[];
@@ -25,6 +29,7 @@ type ReportType = 'daily' | 'monthly' | 'inventory' | 'expenses' | 'profit' | 'd
 
 // States
 const activeReport = ref<ReportType>('profit');
+const reportScope = ref<ReportScope>('profit');
 const getDefaultDateFrom = () => {
   const d = new Date();
   d.setDate(d.getDate() - 30);
@@ -34,21 +39,31 @@ const getDefaultDateTo = () => new Date().toISOString().substring(0, 10);
 const dateFrom = ref(getDefaultDateFrom());
 const dateTo = ref(getDefaultDateTo());
 
+const scopedTransactions = computed(() => {
+  const source = reportScope.value === 'consignment' ? (props.consignmentTransactions || []) : props.transactions;
+  return source.filter((tx) => {
+    const dStr = tx.createdAt.substring(0, 10);
+    return dStr >= dateFrom.value && dStr <= dateTo.value;
+  });
+});
+
+const inventoryRows = computed(() => buildInventoryAssetRows(filterInventoryByOwnership(props.products, reportScope.value)));
+const payoutRows = computed(() => reportScope.value === 'consignment'
+  ? buildConsignmentWithdrawalRows(props.consignmentWithdrawals || [])
+  : filterPayoutRowsByOwnership(props.distributions, reportScope.value));
+
 // DATA SELECTORS based on date range
 
 // 1. Daily Sales list (filtered)
 const dailySalesData = computed(() => {
-  return props.transactions.filter(tx => {
-    const dStr = tx.createdAt.substring(0, 10);
-    return dStr >= dateFrom.value && dStr <= dateTo.value;
-  }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return [...scopedTransactions.value].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 });
 
 // 2. Monthly grouped sales
 const monthlyGroupedData = computed(() => {
   const dataMap: { [key: string]: { revenue: number; cogs: number; profit: number; count: number } } = {};
-  
-  props.transactions.forEach(tx => {
+
+  scopedTransactions.value.forEach(tx => {
     const month = tx.createdAt.substring(0, 7);
     if (!dataMap[month]) {
       dataMap[month] = { revenue: 0, cogs: 0, profit: 0, count: 0 };
@@ -73,7 +88,7 @@ const expensesData = computed(() => {
 const profitReportData = computed(() => {
   const dataMap: { [key: string]: { revenue: number; cogs: number; expenses: number; netProfit: number } } = {};
 
-  props.transactions.forEach(tx => {
+  scopedTransactions.value.forEach(tx => {
     const month = tx.createdAt.substring(0, 7);
     if (!dataMap[month]) {
       dataMap[month] = { revenue: 0, cogs: 0, expenses: 0, netProfit: 0 };
@@ -82,20 +97,37 @@ const profitReportData = computed(() => {
     dataMap[month].cogs += tx.costOfGoodsSold;
   });
 
-  props.expenses.forEach(exp => {
-    const month = exp.date.substring(0, 7);
-    if (!dataMap[month]) {
-      dataMap[month] = { revenue: 0, cogs: 0, expenses: 0, netProfit: 0 };
-    }
-    dataMap[month].expenses += exp.amount;
-  });
+  if (reportScope.value === 'profit') {
+    props.expenses.forEach(exp => {
+      const month = exp.date.substring(0, 7);
+      if (!dataMap[month]) {
+        dataMap[month] = { revenue: 0, cogs: 0, expenses: 0, netProfit: 0 };
+      }
+      dataMap[month].expenses += exp.amount;
+    });
+  }
 
   Object.keys(dataMap).forEach(month => {
     const item = dataMap[month];
-    item.netProfit = Math.max(0, item.revenue - item.cogs - item.expenses);
+    item.netProfit = reportScope.value === 'consignment'
+      ? Math.max(0, item.revenue - item.cogs)
+      : Math.max(0, item.revenue - item.cogs - item.expenses);
   });
 
   return dataMap;
+});
+
+const consignmentWithdrawalsInRange = computed(() => {
+  if (reportScope.value !== 'consignment' || !props.consignmentWithdrawals) {
+    return [];
+  }
+
+  const fromMonth = dateFrom.value.substring(0, 7);
+  const toMonth = dateTo.value.substring(0, 7);
+
+  return props.consignmentWithdrawals.filter((item) => {
+    return item.month >= fromMonth && item.month <= toMonth;
+  });
 });
 
 // Financial aggregates for totals box
@@ -104,6 +136,7 @@ const aggregates = computed(() => {
   let profitTotal = 0;
   let cogsTotal = 0;
   let expensesTotal = 0;
+  let consignmentWithdrawalTotal = 0;
 
   dailySalesData.value.forEach(tx => {
     salesTotal += tx.total;
@@ -115,11 +148,14 @@ const aggregates = computed(() => {
     expensesTotal += exp.amount;
   });
 
+  consignmentWithdrawalTotal = consignmentWithdrawalsInRange.value.reduce((sum, item) => sum + item.amount, 0);
+
   return {
     salesTotal,
     profitTotal,
     cogsTotal,
     expensesTotal,
+    consignmentWithdrawalTotal,
     netProfit: Math.max(0, salesTotal - cogsTotal - expensesTotal)
   };
 });
@@ -164,7 +200,7 @@ const handleCSVExport = () => {
 
     case 'inventory':
       headers = ['SKU', 'Product Name', 'Category', 'Brand', 'Supplier', 'Cost Price', 'Selling Price', 'Current Stock', 'Stock Valuation', 'Status'];
-      rows = props.products.map(p => [
+      rows = filterInventoryByOwnership(props.products, reportScope.value).map(p => [
         p.sku,
         p.name,
         p.category,
@@ -206,17 +242,17 @@ const handleCSVExport = () => {
       break;
 
     case 'distribution':
-      props.distributions.forEach(d => {
-        d.distributions.forEach(item => {
-          rows.push([
-            d.month,
-            item.partnerName,
-            `${item.percentage}%`,
-            item.amount.toFixed(2)
-          ]);
-        });
+      payoutRows.value.forEach((item) => {
+        rows.push([
+          item.month,
+          item.partnerName,
+          `${item.percentage}%`,
+          item.amount.toFixed(2)
+        ]);
       });
-      headers = ['Billing Cycle', 'Partner Name', 'Equity Share %', 'Distributed Payout PHP'];
+      headers = reportScope.value === 'consignment'
+        ? ['Billing Cycle', 'Withdrawal Type', 'Equity Share %', 'Disbursed Amount PHP']
+        : ['Billing Cycle', 'Partner Name', 'Equity Share %', 'Distributed Payout PHP'];
       filename = `Profit_Distribution_Report_${new Date().toISOString().slice(0, 10)}`;
       break;
   }
@@ -244,7 +280,7 @@ const handlePrint = () => {
         <!-- Date range filters -->
         <div class="space-y-2.5 p-3 bg-zinc-50 dark:bg-zinc-850 rounded-xl text-xs border border-slate-100 dark:border-zinc-800">
           <span class="font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider text-[10px] block">Global Date Scope</span>
-          
+
           <div class="space-y-2">
             <div>
               <label class="block text-[10px] text-zinc-400 mb-0.5 font-bold uppercase tracking-wide">From:</label>
@@ -262,6 +298,17 @@ const handlePrint = () => {
                 v-model="dateTo"
                 class="w-full p-1.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-md font-bold text-xs"
               />
+            </div>
+
+            <div>
+              <label class="block text-[10px] text-zinc-400 mb-0.5 font-bold uppercase tracking-wide">Report For:</label>
+              <select
+                v-model="reportScope"
+                class="w-full p-1.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-md font-bold text-xs"
+              >
+                <option value="profit">Profit Sharing</option>
+                <option value="consignment">Consignment</option>
+              </select>
             </div>
           </div>
         </div>
@@ -301,15 +348,15 @@ const handlePrint = () => {
               {{ activeReport.toUpperCase() }} STATEMENT
             </span>
             <h3 class="text-sm font-bold text-slate-900 dark:text-zinc-50 mt-1 uppercase tracking-wider font-display">
-              <span v-if="activeReport === 'profit'">Profit & Loss (P&L) Ledger</span>
-              <span v-else-if="activeReport === 'daily'">Daily Sales & Receipts Ledger</span>
-              <span v-else-if="activeReport === 'monthly'">Monthly Performance Aggregates</span>
+              <span v-if="activeReport === 'profit'">{{ reportScope === 'consignment' ? 'Consignment P&L Ledger' : 'Profit & Loss (P&L) Ledger' }}</span>
+              <span v-else-if="activeReport === 'daily'">{{ reportScope === 'consignment' ? 'Daily Consignment Sales Ledger' : 'Daily Sales & Receipts Ledger' }}</span>
+              <span v-else-if="activeReport === 'monthly'">{{ reportScope === 'consignment' ? 'Monthly Consignment Performance' : 'Monthly Performance Aggregates' }}</span>
               <span v-else-if="activeReport === 'inventory'">Inventory Assets Valuation Sheet</span>
               <span v-else-if="activeReport === 'expenses'">Operational Overhead Audits</span>
               <span v-else-if="activeReport === 'distribution'">Equity Stakeholder Payout History</span>
             </h3>
             <p class="text-[11px] text-slate-400 dark:text-zinc-500 mt-1 font-semibold">
-              {{ activeReport !== 'inventory' ? `Period scoped from ${dateFrom} through ${dateTo}` : 'Current assets status sheet' }}
+              {{ activeReport !== 'inventory' ? `${reportScope === 'consignment' ? 'Consignment' : 'Profit Sharing'} period scoped from ${dateFrom} through ${dateTo}` : 'Current assets status sheet' }}
             </p>
           </div>
 
@@ -405,14 +452,14 @@ const handlePrint = () => {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-zinc-800/40">
-              <tr v-for="p in products" :key="p.id" class="hover:bg-zinc-50/50">
-                <td class="p-3 font-mono font-bold text-[11px] text-zinc-600 dark:text-zinc-300">{{ p.sku }}</td>
-                <td class="p-3 font-bold text-slate-800 dark:text-zinc-200">{{ p.name }}</td>
-                <td class="p-3 text-zinc-450 font-semibold">{{ p.supplier }}</td>
-                <td class="p-3 text-right font-mono font-medium">{{ formatPHP(p.costPrice) }}</td>
-                <td class="p-3 text-right font-mono font-bold">{{ formatPHP(p.sellingPrice) }}</td>
-                <td class="p-3 text-center font-mono font-black text-sm">{{ p.currentStock }}</td>
-                <td class="p-3 text-right font-mono font-black text-emerald-600">{{ formatPHP(p.currentStock * p.costPrice) }}</td>
+              <tr v-for="item in inventoryRows" :key="item.id" class="hover:bg-zinc-50/50">
+                <td class="p-3 font-mono font-bold text-[11px] text-zinc-600 dark:text-zinc-300">{{ item.sku }}</td>
+                <td class="p-3 font-bold text-slate-800 dark:text-zinc-200">{{ item.name }}</td>
+                <td class="p-3 text-zinc-450 font-semibold">{{ item.supplier }}</td>
+                <td class="p-3 text-right font-mono font-medium">{{ formatPHP(item.costPrice) }}</td>
+                <td class="p-3 text-right font-mono font-bold">{{ formatPHP(item.sellingPrice) }}</td>
+                <td class="p-3 text-center font-mono font-black text-sm">{{ item.stockCount }}</td>
+                <td class="p-3 text-right font-mono font-black text-emerald-600">{{ formatPHP(item.assetValuation) }}</td>
               </tr>
             </tbody>
           </table>
@@ -476,19 +523,21 @@ const handlePrint = () => {
             <thead>
               <tr class="bg-[#F8FAFC] dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-zinc-400">
                 <th class="p-3">Billing Cycle</th>
-                <th class="p-3">Equity Partner</th>
-                <th class="p-3 text-center">Percentage Share</th>
-                <th class="p-3 text-right">Dividends Payout</th>
+                <th class="p-3">{{ reportScope === 'consignment' ? 'Historical Distribution' : 'Equity Partner' }}</th>
+                <th class="p-3 text-center">{{ reportScope === 'consignment' ? 'Share %' : 'Percentage Share' }}</th>
+                <th class="p-3 text-right">{{ reportScope === 'consignment' ? 'Disbursed Amount' : 'Dividends Payout' }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-zinc-800/40">
-              <tr v-if="distributions.length === 0">
-                <td colspan="4" class="p-6 text-center text-zinc-400 font-bold">No historical partner distribution transactions.</td>
+              <tr v-if="payoutRows.length === 0">
+                <td colspan="4" class="p-6 text-center text-zinc-400 font-bold">
+                  {{ reportScope === 'consignment' ? 'No consignment withdrawals logged yet.' : 'No historical partner distribution transactions.' }}
+                </td>
               </tr>
-              <template v-else v-for="d in distributions" :key="d.id">
-                <tr v-for="(item, index) in d.distributions" :key="index" class="hover:bg-zinc-50/50">
-                  <td v-if="index === 0" :rowspan="d.distributions.length" class="p-3 font-black text-zinc-850 dark:text-zinc-200 border-r border-slate-200 dark:border-zinc-800 align-top text-sm">
-                    {{ d.month }}
+              <template v-else v-for="(item, index) in payoutRows" :key="`${item.month}-${item.partnerName}-${index}`">
+                <tr class="hover:bg-zinc-50/50">
+                  <td v-if="index === 0 || payoutRows[index - 1]?.month !== item.month" :rowspan="payoutRows.filter((row) => row.month === item.month).length" class="p-3 font-black text-zinc-850 dark:text-zinc-200 border-r border-slate-200 dark:border-zinc-800 align-top text-sm">
+                    {{ item.month }}
                   </td>
                   <td class="p-3 font-bold text-slate-800 dark:text-zinc-200">{{ item.partnerName }}</td>
                   <td class="p-3 text-center font-mono font-black text-zinc-500">{{ item.percentage }}%</td>
@@ -500,32 +549,32 @@ const handlePrint = () => {
         </div>
 
         <!-- Scoped Summary aggregate panel -->
-        <div class="bg-[#F8FAFC] dark:bg-zinc-850 border border-slate-250 dark:border-zinc-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4" id="report-financial-aggregates">
+        <div class="bg-zinc-950 border border-zinc-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-white shadow-inner" id="report-financial-aggregates">
           <div class="space-y-1">
-            <h5 class="font-bold text-slate-850 dark:text-zinc-200 text-xs">Period Scoped Ledger Aggregates</h5>
+            <h5 class="font-bold text-zinc-100 text-xs">Period Scoped Ledger Aggregates</h5>
             <p class="text-[10px] text-zinc-400 font-medium">Totalized calculation indexes compiled from current scoped inputs</p>
           </div>
 
-          <div class="flex flex-wrap items-center gap-6 text-xs text-right" id="report-aggregates-box">
-            <div v-if="activeReport !== 'inventory'" class="flex items-center gap-6">
+          <div class="flex flex-wrap items-center gap-6 text-xs text-right text-white" id="report-aggregates-box">
+            <div class="flex items-center gap-6">
               <div>
                 <span class="text-[10px] text-zinc-400 font-bold block uppercase tracking-wider mb-0.5">Period Sales</span>
-                <span class="font-bold font-mono text-zinc-900 dark:text-zinc-100">{{ formatPHP(aggregates.salesTotal) }}</span>
+                <span class="font-bold font-mono text-zinc-100">{{ formatPHP(aggregates.salesTotal) }}</span>
               </div>
 
               <div>
                 <span class="text-[10px] text-zinc-400 font-bold block uppercase tracking-wider mb-0.5">Period COGS</span>
-                <span class="font-bold font-mono text-zinc-500">-{{ formatPHP(aggregates.cogsTotal) }}</span>
+                <span class="font-bold font-mono text-zinc-200">-{{ formatPHP(aggregates.cogsTotal) }}</span>
               </div>
 
               <div>
                 <span class="text-[10px] text-zinc-400 font-bold block uppercase tracking-wider mb-0.5">Period Expenses</span>
-                <span class="font-bold font-mono text-rose-500">-{{ formatPHP(aggregates.expensesTotal) }}</span>
+                <span class="font-bold font-mono text-rose-300">-{{ formatPHP(aggregates.expensesTotal) }}</span>
               </div>
 
-              <div class="border-l border-slate-200 dark:border-zinc-800 pl-4">
-                <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-black block uppercase tracking-wider mb-0.5">Net Yield</span>
-                <span class="font-black font-mono text-emerald-600 text-sm">{{ formatPHP(aggregates.netProfit) }}</span>
+              <div class="border-l border-zinc-700 pl-4">
+                <span class="text-[10px] text-emerald-300 font-black block uppercase tracking-wider mb-0.5">Net Yield</span>
+                <span class="font-black font-mono text-emerald-300 text-sm">{{ formatPHP(aggregates.netProfit) }}</span>
               </div>
             </div>
           </div>

@@ -9,6 +9,8 @@ export interface Product {
   supplier: string;
   costPrice: number;
   sellingPrice: number;
+  /** Suggested retail price used for promotional comparisons in the guest catalog. */
+  srpPrice?: number;
   /** Public retail price displayed in the guest catalog. */
   storePrice: number;
   currentStock: number;
@@ -107,6 +109,14 @@ export interface ProfitDistributionRecord {
     percentage: number;
     amount: number;
   }[];
+  createdAt: string;
+}
+
+export interface ConsignmentWithdrawal {
+  id: string;
+  month: string; // YYYY-MM
+  amount: number;
+  note: string;
   createdAt: string;
 }
 
