@@ -684,7 +684,7 @@ app.post('/api/auth/logout', async (req, res) => {
   }
 });
 
-app.get('/catalog.json', async (_req, res) => {
+const serveGuestCatalog = async (_req: express.Request, res: express.Response): Promise<void> => {
   try {
     const catalog = await readFile(guestCatalogPath, 'utf8');
     res.type('application/json').send(catalog);
@@ -698,7 +698,10 @@ app.get('/catalog.json', async (_req, res) => {
       res.status(404).json({ error: 'Catalog file is not available.' });
     }
   }
-});
+};
+
+app.get('/api/catalog.json', serveGuestCatalog);
+app.get('/catalog.json', serveGuestCatalog);
 
 app.post('/api/guest-catalog/generate', async (req, res) => {
   const client = await pool.connect();

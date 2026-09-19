@@ -39,7 +39,7 @@ const loadCatalog = async () => {
   loading.value = true;
   error.value = '';
   try {
-    const response = await fetch(`/catalog.json?updated=${Date.now()}`, { cache: 'no-store' });
+    const response = await fetch(`/api/catalog.json?updated=${Date.now()}`, { cache: 'no-store' });
     if (!response.ok) throw new Error('Catalog file is not available.');
     const data = await response.json();
     products.value = Array.isArray(data.products) ? data.products : [];
