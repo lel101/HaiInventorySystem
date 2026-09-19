@@ -205,6 +205,7 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
       discount: toNumber(row.discount),
       totalPrice: toNumber(row.total_price),
       selectedSize: row.selected_size || undefined,
+      inventoryType: row.inventory_type === 'consignment' ? 'consignment' : 'owned',
     });
     transactionItemsById.set(row.transaction_id, items);
   }
@@ -244,6 +245,7 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
       shoeGender: row.shoe_gender === 'Men' || row.shoe_gender === 'Women' ? row.shoe_gender : undefined,
       shoeSizes: Array.isArray(row.shoe_sizes) ? row.shoe_sizes.map(toNumber) : [],
       sizeStocks: row.size_stocks && typeof row.size_stocks === 'object' ? row.size_stocks : {},
+      inventoryType: row.inventory_type === 'consignment' ? 'consignment' : 'owned',
       status: row.status,
       createdAt: toIsoString(row.created_at),
       deletedAt: toOptionalIsoString(row.deleted_at),
@@ -320,8 +322,8 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
         `insert into products (
           id, sku, barcode, name, description, category, brand, supplier, cost_price,
           selling_price, store_price, current_stock, minimum_stock, image, image_url, apparel_sizes,
-          shoe_gender, shoe_sizes, size_stocks, status, created_at, deleted_at
-        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+          shoe_gender, shoe_sizes, size_stocks, inventory_type, status, created_at, deleted_at
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
         [
           product.id,
           product.sku,
@@ -342,6 +344,7 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
           product.shoeGender || null,
           product.shoeSizes || [],
           product.sizeStocks || {},
+          product.inventoryType || 'owned',
           product.status,
           product.createdAt,
           product.deletedAt || null,
@@ -391,8 +394,8 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
       for (const item of transaction.items || []) {
         await client.query(
           `insert into transaction_items (
-            transaction_id, product_id, name, sku, cost_price, selling_price, quantity, discount, total_price, selected_size
-          ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            transaction_id, product_id, name, sku, cost_price, selling_price, quantity, discount, total_price, selected_size, inventory_type
+          ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
           [
             transaction.id,
             item.productId,
@@ -404,6 +407,7 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
             item.discount,
             item.totalPrice,
             item.selectedSize || null,
+            item.inventoryType || 'owned',
           ]
         );
       }

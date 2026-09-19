@@ -76,6 +76,7 @@ const apparelSizes = ref<string[]>([]);
 const shoeGender = ref<'Men' | 'Women' | ''>('');
 const shoeSizes = ref<number[]>([]);
 const sizeStocks = ref<Record<string, number>>({});
+const inventoryType = ref<'owned' | 'consignment'>('owned');
 const productFormError = ref('');
 const APPAREL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 const EURO_SHOE_SIZES = Array.from({ length: 14 }, (_, index) => index + 35);
@@ -108,6 +109,7 @@ const handleOpenAddModal = () => {
   shoeGender.value = '';
   shoeSizes.value = [];
   sizeStocks.value = {};
+  inventoryType.value = 'owned';
   isProductModalOpen.value = true;
 };
 
@@ -133,6 +135,7 @@ const handleDuplicate = (product: Product) => {
   shoeGender.value = product.shoeGender || '';
   shoeSizes.value = [...(product.shoeSizes || [])];
   sizeStocks.value = { ...(product.sizeStocks || {}) };
+  inventoryType.value = product.inventoryType || 'owned';
   isProductModalOpen.value = true;
 };
 
@@ -158,6 +161,7 @@ const handleOpenEditModal = (product: Product) => {
   shoeGender.value = product.shoeGender || '';
   shoeSizes.value = [...(product.shoeSizes || [])];
   sizeStocks.value = { ...(product.sizeStocks || {}) };
+  inventoryType.value = product.inventoryType || 'owned';
   isProductModalOpen.value = true;
 };
 
@@ -202,6 +206,7 @@ const handleProductSubmit = () => {
     shoeGender: category.value === 'Footwear' && shoeGender.value ? shoeGender.value : undefined,
     shoeSizes: category.value === 'Footwear' ? shoeSizes.value : [],
     sizeStocks: normalizedSizeStocks,
+    inventoryType: inventoryType.value,
   };
 
   if (editingProduct.value) {
@@ -810,6 +815,21 @@ const handleDelete = (id: string) => {
                   class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-semibold"
                 />
               </div>
+            </div>
+
+            <div>
+              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Inventory Ownership</label>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="cursor-pointer">
+                  <input v-model="inventoryType" value="owned" type="radio" class="sr-only peer" />
+                  <span class="block p-3 rounded-lg border border-slate-200 dark:border-zinc-700 text-xs font-bold text-slate-600 dark:text-zinc-300 peer-checked:border-indigo-600 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 dark:peer-checked:bg-indigo-950/30">Owned / Profit Sharing</span>
+                </label>
+                <label class="cursor-pointer">
+                  <input v-model="inventoryType" value="consignment" type="radio" class="sr-only peer" />
+                  <span class="block p-3 rounded-lg border border-slate-200 dark:border-zinc-700 text-xs font-bold text-slate-600 dark:text-zinc-300 peer-checked:border-amber-500 peer-checked:bg-amber-50 peer-checked:text-amber-700 dark:peer-checked:bg-amber-950/30">Consignment</span>
+                </label>
+              </div>
+              <p class="mt-1 text-[10px] text-zinc-400">Consignment sales are excluded from partner profit sharing and investor access.</p>
             </div>
 
             <!-- Pricing -->

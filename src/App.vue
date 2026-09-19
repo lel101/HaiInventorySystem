@@ -64,6 +64,26 @@ const investorAccounts = ref<InvestorAccount[]>([]);
 const activeProducts = computed(() => products.value.filter((product) => !product.deletedAt));
 const activeExpenses = computed(() => expenses.value.filter((expense) => !expense.deletedAt));
 const activePartners = computed(() => partners.value.filter((partner) => !partner.deletedAt));
+const scopedTransactions = (scope: 'owned' | 'consignment') => computed(() => transactions.value.map((transaction) => {
+  const items = transaction.items.filter((item) => (item.inventoryType || 'owned') === scope);
+  if (!items.length) return null;
+  const allItemTotal = transaction.items.reduce((sum, item) => sum + item.totalPrice, 0);
+  const scopedItemTotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+  const invoiceFactor = allItemTotal > 0 ? transaction.total / allItemTotal : 1;
+  const total = scopedItemTotal * invoiceFactor;
+  const cogs = items.reduce((sum, item) => sum + item.costPrice * item.quantity, 0);
+  return {
+    ...transaction,
+    items,
+    subtotal: scopedItemTotal,
+    discountAmount: Math.max(0, scopedItemTotal - total),
+    total,
+    costOfGoodsSold: cogs,
+    profit: total - cogs,
+  };
+}).filter((transaction): transaction is Transaction => !!transaction));
+const ownedTransactions = scopedTransactions('owned');
+const consignmentTransactions = scopedTransactions('consignment');
 
 const activeView = ref<string>('dashboard');
 const isGuestPage = window.location.pathname.replace(/\/+$/, '') === '/guest';
@@ -707,6 +727,7 @@ const handleCheckout = (
       discount: item.discount,
       totalPrice: originalPrice - discountAmount,
       selectedSize: item.selectedSize,
+      inventoryType: item.product.inventoryType || 'owned',
     };
   });
 
@@ -1016,7 +1037,7 @@ const handleGenerateGuestCatalog = async () => {
         <div class="max-w-7xl mx-auto">
           <InvestorView
             :products="activeProducts"
-            :transactions="transactions"
+            :transactions="ownedTransactions"
             :expenses="activeExpenses"
             :partners="activePartners"
             :distributions="distributions"
@@ -1165,7 +1186,8 @@ const handleGenerateGuestCatalog = async () => {
           <Dashboard 
             v-if="activeView === 'dashboard'"
             :products="activeProducts"
-            :transactions="transactions"
+            :transactions="ownedTransactions"
+            :consignment-transactions="consignmentTransactions"
             :expenses="activeExpenses"
             @navigate="activeView = $event"
           />
@@ -1201,7 +1223,7 @@ const handleGenerateGuestCatalog = async () => {
             v-else-if="activeView === 'partners'"
             :partners="activePartners"
             :distributions="distributions"
-            :transactions="transactions"
+            :transactions="ownedTransactions"
             :expenses="activeExpenses"
             :investor-accounts="investorAccounts"
             @add-partner="handleAddPartner"
@@ -1215,7 +1237,7 @@ const handleGenerateGuestCatalog = async () => {
           <Reports
             v-else-if="activeView === 'reports'"
             :products="activeProducts"
-            :transactions="transactions"
+            :transactions="ownedTransactions"
             :expenses="activeExpenses"
             :partners="activePartners"
             :distributions="distributions"

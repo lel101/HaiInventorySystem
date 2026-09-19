@@ -23,6 +23,7 @@ export interface Product {
   shoeSizes?: number[];
   /** Remaining units keyed by an offered apparel or EU shoe size. */
   sizeStocks?: Record<string, number>;
+  inventoryType?: 'owned' | 'consignment';
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
   createdAt: string;
   deletedAt?: string;
@@ -62,6 +63,7 @@ export interface Transaction {
     discount: number; // percentage
     totalPrice: number;
     selectedSize?: string;
+    inventoryType?: 'owned' | 'consignment';
   }[];
   subtotal: number;
   discountAmount: number;
