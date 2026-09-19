@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-19T15:46:48.087Z",
+  "generatedAt": "2026-09-19T16:47:25.595Z",
   "products": [
     {
       "id": "prod-c1sfrtj",
@@ -9,7 +9,7 @@
       "brand": "",
       "srpPrice": 4995,
       "storePrice": 3000,
-      "currentStock": 1,
+      "currentStock": 0,
       "image": "👟",
       "imageUrl": "https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcRh1ycbhYV4oMb0LXrOJXq0c123EcTdzBMmmdd_lmaJTYih8g",
       "shoeGender": "Women",
@@ -17,7 +17,7 @@
         36
       ],
       "sizeStocks": {
-        "36": 1
+        "36": 0
       }
     },
     {

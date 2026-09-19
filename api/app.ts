@@ -84,6 +84,17 @@ export const resolveGuestCatalogPath = (): string => {
   return isServerlessRuntime ? serverlessCatalogPath : publicCatalogPath;
 };
 
+export const buildGuestCatalogProducts = (products: Product[]) => products
+  .filter((product) => !product.deletedAt)
+  .map(({ id, sku, name, category, brand, srpPrice, storePrice, sellingPrice, currentStock, image, imageUrl, apparelSizes, shoeGender, shoeSizes, sizeStocks }) => ({
+    id, sku, name, category, brand, srpPrice: srpPrice || storePrice || sellingPrice, storePrice: storePrice || sellingPrice, currentStock, image,
+    ...(imageUrl ? { imageUrl } : {}),
+    ...(apparelSizes?.length ? { apparelSizes } : {}),
+    ...(shoeGender ? { shoeGender } : {}),
+    ...(shoeSizes?.length ? { shoeSizes } : {}),
+    ...(sizeStocks && Object.keys(sizeStocks).length ? { sizeStocks } : {}),
+  }));
+
 const guestCatalogPath = resolveGuestCatalogPath();
 const guestCatalogDirectory = path.dirname(guestCatalogPath);
 
@@ -743,16 +754,7 @@ app.post('/api/guest-catalog/generate', async (req, res) => {
     }
 
     const state = await loadRelationalState(client);
-    const products = state.products
-      .filter((product) => !product.deletedAt && product.currentStock > 0)
-      .map(({ id, sku, name, category, brand, srpPrice, storePrice, sellingPrice, currentStock, image, imageUrl, apparelSizes, shoeGender, shoeSizes, sizeStocks }) => ({
-        id, sku, name, category, brand, srpPrice: srpPrice || storePrice || sellingPrice, storePrice: storePrice || sellingPrice, currentStock, image,
-        ...(imageUrl ? { imageUrl } : {}),
-        ...(apparelSizes?.length ? { apparelSizes } : {}),
-        ...(shoeGender ? { shoeGender } : {}),
-        ...(shoeSizes?.length ? { shoeSizes } : {}),
-        ...(sizeStocks && Object.keys(sizeStocks).length ? { sizeStocks } : {}),
-      }));
+    const products = buildGuestCatalogProducts(state.products);
     const catalog = { generatedAt: new Date().toISOString(), products };
     await ensureGuestCatalogDirectory();
     const temporaryPath = path.join(guestCatalogDirectory, `catalog.json.${Date.now()}.tmp`);

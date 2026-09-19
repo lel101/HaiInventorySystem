@@ -31,12 +31,16 @@ const zoomLevel = ref(1);
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 const categories = computed(() => ['All', ...new Set(products.value.map((product) => product.category))]);
-const visibleProducts = computed(() => products.value.filter((product) => {
+const filteredProducts = computed(() => {
   const query = search.value.trim().toLowerCase();
-  return product.currentStock > 0
-    && (category.value === 'All' || product.category === category.value)
-    && (!query || [product.name, product.brand, product.category].some((value) => value.toLowerCase().includes(query)));
-}));
+  return [...products.value]
+    .filter((product) => (category.value === 'All' || product.category === category.value)
+      && (!query || [product.name, product.brand, product.category].some((value) => value.toLowerCase().includes(query))))
+    .sort((a, b) => a.name.localeCompare(b.name));
+});
+
+const availableProducts = computed(() => filteredProducts.value.filter((product) => product.currentStock > 0));
+const soldOutProducts = computed(() => filteredProducts.value.filter((product) => product.currentStock <= 0));
 
 const loadCatalog = async () => {
   loading.value = true;
@@ -106,37 +110,68 @@ onUnmounted(() => {
       <p v-if="generatedAt" class="mb-5 text-xs text-slate-400">Catalog updated {{ new Date(generatedAt).toLocaleString() }}</p>
       <div v-if="loading" class="py-20 text-center text-slate-400">Loading available items…</div>
       <div v-else-if="error" class="py-20 text-center text-slate-500">{{ error }}</div>
-      <div v-else-if="!visibleProducts.length" class="py-20 text-center text-slate-500">
+      <div v-else-if="!filteredProducts.length" class="py-20 text-center text-slate-500">
         <PackageSearch class="h-10 w-10 mx-auto mb-3 text-slate-300" />
-        No available items match your search.
+        No items match your search.
       </div>
-      <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-        <article v-for="product in visibleProducts" :key="product.id" class="bg-white rounded-xl overflow-hidden border border-slate-200 shadow-sm">
-          <div class="h-64 bg-white flex items-center justify-center overflow-visible cursor-zoom-in" @click="openProductImage(product)">
-            <img v-if="product.imageUrl" :src="product.imageUrl" :alt="product.name" class="w-full h-full object-contain p-2" />
-            <span v-else class="text-8xl leading-none">{{ product.image || '📦' }}</span>
-          </div>
-          <div class="p-4">
-            <p class="text-[10px] font-bold uppercase tracking-wider text-indigo-600">{{ product.category }}<span v-if="product.brand"> · {{ product.brand }}</span></p>
-            <h2 class="mt-1 font-bold text-slate-900">{{ product.name }}</h2>
-            <div v-if="product.apparelSizes?.length || product.shoeSizes?.length" class="mt-3 text-xs text-slate-600">
-              <span v-if="product.apparelSizes?.length">Sizes: <template v-for="(size, index) in product.apparelSizes" :key="size">{{ index ? ', ' : '' }}{{ size }} ({{ product.sizeStocks?.[size] || 0 }})</template></span>
-              <span v-else>{{ product.shoeGender || 'EU' }} EU: <template v-for="(size, index) in product.shoeSizes" :key="size">{{ index ? ', ' : '' }}{{ size }} ({{ product.sizeStocks?.[String(size)] || 0 }})</template></span>
+      <div v-else class="space-y-8">
+        <div v-if="availableProducts.length" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          <article v-for="product in availableProducts" :key="product.id" class="bg-white rounded-xl overflow-hidden border border-slate-200 shadow-sm">
+            <div class="h-64 bg-white flex items-center justify-center overflow-visible cursor-zoom-in" @click="openProductImage(product)">
+              <img v-if="product.imageUrl" :src="product.imageUrl" :alt="product.name" class="w-full h-full object-contain p-2" />
+              <span v-else class="text-8xl leading-none">{{ product.image || '📦' }}</span>
             </div>
-            <div class="mt-4 flex items-end justify-between gap-2">
-              <div>
-                <div v-if="getGuestPriceDisplay(product).hasDiscount" class="flex items-center gap-2 mb-1">
-                  <span class="text-[10px] text-slate-400 line-through">{{ formatPHP(getGuestPriceDisplay(product).originalPrice) }}</span>
-                  <span class="rounded bg-rose-100 px-1.5 py-0.5 text-[9px] font-black uppercase text-rose-600">
-                    Save {{ getGuestPriceDisplay(product).discountPercent }}%
-                  </span>
-                </div>
-                <strong class="text-lg">{{ formatPHP(getGuestPriceDisplay(product).currentPrice) }}</strong>
+            <div class="p-4">
+              <p class="text-[10px] font-bold uppercase tracking-wider text-indigo-600">{{ product.category }}<span v-if="product.brand"> · {{ product.brand }}</span></p>
+              <h2 class="mt-1 font-bold text-slate-900">{{ product.name }}</h2>
+              <div v-if="product.apparelSizes?.length || product.shoeSizes?.length" class="mt-3 text-xs text-slate-600">
+                <span v-if="product.apparelSizes?.length">Sizes: <template v-for="(size, index) in product.apparelSizes" :key="size">{{ index ? ', ' : '' }}{{ size }} ({{ product.sizeStocks?.[size] || 0 }})</template></span>
+                <span v-else>{{ product.shoeGender || 'EU' }} EU: <template v-for="(size, index) in product.shoeSizes" :key="size">{{ index ? ', ' : '' }}{{ size }} ({{ product.sizeStocks?.[String(size)] || 0 }})</template></span>
               </div>
-              <span class="text-[10px] font-bold text-emerald-600 uppercase">{{ product.currentStock }} Available</span>
+              <div class="mt-4 flex items-end justify-between gap-2">
+                <div>
+                  <div v-if="getGuestPriceDisplay(product).hasDiscount" class="flex items-center gap-2 mb-1">
+                    <span class="text-[10px] text-slate-400 line-through">{{ formatPHP(getGuestPriceDisplay(product).originalPrice) }}</span>
+                    <span class="rounded bg-rose-100 px-1.5 py-0.5 text-[9px] font-black uppercase text-rose-600">
+                      Save {{ getGuestPriceDisplay(product).discountPercent }}%
+                    </span>
+                  </div>
+                  <strong class="text-lg">{{ formatPHP(getGuestPriceDisplay(product).currentPrice) }}</strong>
+                </div>
+                <span class="text-[10px] font-bold text-emerald-600 uppercase">{{ product.currentStock }} Available</span>
+              </div>
             </div>
+          </article>
+        </div>
+
+        <div v-if="soldOutProducts.length" class="pt-2">
+          <h2 class="mb-4 text-xs font-black uppercase tracking-[0.2em] text-slate-600">Sold Out</h2>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 opacity-90">
+            <article v-for="product in soldOutProducts" :key="product.id" class="bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-sm relative">
+              <div class="absolute inset-0 bg-slate-100/55"></div>
+              <div class="relative h-64 bg-slate-50 flex items-center justify-center overflow-visible cursor-zoom-in" @click="openProductImage(product)">
+                <img v-if="product.imageUrl" :src="product.imageUrl" :alt="product.name" class="w-full h-full object-contain p-2" style="filter: saturate(0.7) brightness(0.95);" />
+                <span v-else class="text-8xl leading-none text-slate-500 opacity-70">{{ product.image || '📦' }}</span>
+              </div>
+              <div class="p-4">
+                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-600">{{ product.category }}<span v-if="product.brand"> · {{ product.brand }}</span></p>
+                <h2 class="mt-1 font-bold text-slate-800">{{ product.name }}</h2>
+                <div class="mt-4 flex items-end justify-between gap-2">
+                  <div>
+                    <div v-if="getGuestPriceDisplay(product).hasDiscount" class="flex items-center gap-2 mb-1">
+                      <span class="text-[10px] text-slate-400 line-through">{{ formatPHP(getGuestPriceDisplay(product).originalPrice) }}</span>
+                      <span class="rounded bg-rose-100 px-1.5 py-0.5 text-[9px] font-black uppercase text-rose-600">
+                        Save {{ getGuestPriceDisplay(product).discountPercent }}%
+                      </span>
+                    </div>
+                    <strong class="text-lg text-slate-700">{{ formatPHP(getGuestPriceDisplay(product).currentPrice) }}</strong>
+                  </div>
+                  <span class="text-[10px] font-black uppercase tracking-wide text-rose-600">Sold Out</span>
+                </div>
+              </div>
+            </article>
           </div>
-        </article>
+        </div>
       </div>
     </section>
 
