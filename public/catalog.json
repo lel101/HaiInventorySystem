@@ -1,0 +1,118 @@
+{
+  "generatedAt": "2026-09-19T13:37:07.323Z",
+  "products": [
+    {
+      "id": "prod-8h8kf5y",
+      "sku": "OTH-CARRHART-432",
+      "name": "Tshirt",
+      "category": "Apparel",
+      "brand": "Carharrt",
+      "storePrice": 380,
+      "currentStock": 6,
+      "image": "👕",
+      "imageUrl": "https://plus.unsplash.com/premium_photo-1718913936342-eaafff98834b?q=80&w=1172&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+      "apparelSizes": [
+        "XS",
+        "L",
+        "XXL",
+        "XL",
+        "M"
+      ],
+      "sizeStocks": {
+        "L": 1,
+        "M": 1,
+        "XL": 1,
+        "XS": 2,
+        "XXL": 1
+      }
+    },
+    {
+      "id": "prod-41qwk0m",
+      "sku": "OTH-BAPE-138",
+      "name": "T-shirt",
+      "category": "Apparel",
+      "brand": "Bape",
+      "storePrice": 380,
+      "currentStock": 7,
+      "image": "👕",
+      "imageUrl": "https://plus.unsplash.com/premium_photo-1718913936342-eaafff98834b?q=80&w=1172&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+      "apparelSizes": [
+        "XXL",
+        "XL",
+        "L"
+      ],
+      "sizeStocks": {
+        "L": 1,
+        "XL": 1,
+        "XXL": 5
+      }
+    },
+    {
+      "id": "prod-kdjob3h",
+      "sku": "FOO-SOCK-957",
+      "name": "Sock",
+      "category": "Footwear",
+      "brand": "",
+      "storePrice": 160,
+      "currentStock": 18,
+      "image": "🧦",
+      "imageUrl": "https://plus.unsplash.com/premium_photo-1684952850099-396e7183bc6c?q=80&w=1331&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+      "shoeGender": "Men",
+      "shoeSizes": [
+        36,
+        37,
+        39,
+        40,
+        41,
+        43,
+        44,
+        46,
+        45
+      ],
+      "sizeStocks": {
+        "36": 10,
+        "37": 1,
+        "39": 1,
+        "40": 1,
+        "41": 1,
+        "43": 1,
+        "44": 1,
+        "45": 1,
+        "46": 1
+      }
+    },
+    {
+      "id": "prod-tfoaryu",
+      "sku": "OTH-CLOS-137",
+      "name": "Close Cap",
+      "category": "Headwear",
+      "brand": "",
+      "storePrice": 380,
+      "currentStock": 8,
+      "image": "🧢",
+      "imageUrl": "https://plus.unsplash.com/premium_photo-1680859126205-1c593bb4f9e8?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+    },
+    {
+      "id": "prod-4w481ni",
+      "sku": "OTH-MESH-229",
+      "name": "Mesh Short",
+      "category": "Apparel",
+      "brand": "",
+      "storePrice": 350,
+      "currentStock": 18,
+      "image": "📦",
+      "imageUrl": "https://images.unsplash.com/photo-1783306224268-4f8e01eda086?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+    },
+    {
+      "id": "prod-rgxkz08",
+      "sku": "OTH-SNAP-857",
+      "name": "Snapback Cap",
+      "category": "Headwear",
+      "brand": "",
+      "storePrice": 380,
+      "currentStock": 15,
+      "image": "🧢",
+      "imageUrl": "https://plus.unsplash.com/premium_photo-1755034663784-a0127bdc89a1?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+    }
+  ]
+}

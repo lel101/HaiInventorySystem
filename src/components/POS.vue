@@ -37,6 +37,14 @@ const transactionDiscount = ref<number>(0);
 const paymentMethod = ref<PaymentMethod>('Cash');
 const cashAmountPaid = ref<string>('');
 const paymentMethods: PaymentMethod[] = ['Cash', 'GCash', 'Maya', 'Bank Transfer'];
+const sizePickerProduct = ref<Product | null>(null);
+
+const productSizes = (product: Product): string[] => product.apparelSizes?.length
+  ? product.apparelSizes
+  : (product.shoeSizes || []).map(String);
+const availableForSize = (product: Product, size?: string): number => size
+  ? Number(product.sizeStocks?.[size] ?? 0)
+  : product.currentStock;
 
 // Active products filter
 const activeProducts = computed(() => {
@@ -52,28 +60,43 @@ const activeProducts = computed(() => {
 });
 
 // Add Item to Cart
-const handleAddToCart = (product: Product) => {
+const handleProductClick = (product: Product) => {
   if (product.currentStock <= 0) {
     emit('add-toast', 'Stock Warning', `${product.name} is out of stock!`, 'error');
     return;
   }
 
-  const existingIndex = cart.value.findIndex(item => item.product.id === product.id);
+  if (productSizes(product).length) {
+    sizePickerProduct.value = product;
+    return;
+  }
+  handleAddToCart(product);
+};
+
+const handleAddToCart = (product: Product, selectedSize?: string) => {
+  const available = availableForSize(product, selectedSize);
+  if (available <= 0) {
+    emit('add-toast', 'Stock Warning', `${product.name}${selectedSize ? ` (${selectedSize})` : ''} is out of stock!`, 'error');
+    return;
+  }
+
+  const existingIndex = cart.value.findIndex(item => item.product.id === product.id && item.selectedSize === selectedSize);
   if (existingIndex !== -1) {
     const existing = cart.value[existingIndex];
-    if (existing.quantity >= product.currentStock) {
-      emit('add-toast', 'Stock Limit', `Cannot sell more than available stock (${product.currentStock}).`, 'error');
+    if (existing.quantity >= available) {
+      emit('add-toast', 'Stock Limit', `Cannot sell more than available stock (${available}).`, 'error');
       return;
     }
     cart.value[existingIndex].quantity += 1;
   } else {
-    cart.value.push({ product, quantity: 1, discount: 0 });
+    cart.value.push({ product, quantity: 1, discount: 0, selectedSize });
   }
+  sizePickerProduct.value = null;
 };
 
 // Update Cart Quantity
-const handleUpdateQuantity = (productId: string, delta: number) => {
-  const existingIndex = cart.value.findIndex(item => item.product.id === productId);
+const handleUpdateQuantity = (productId: string, selectedSize: string | undefined, delta: number) => {
+  const existingIndex = cart.value.findIndex(item => item.product.id === productId && item.selectedSize === selectedSize);
   if (existingIndex === -1) return;
 
   const item = cart.value[existingIndex];
@@ -84,8 +107,9 @@ const handleUpdateQuantity = (productId: string, delta: number) => {
     return;
   }
 
-  if (newQty > item.product.currentStock) {
-    emit('add-toast', 'Stock Limit', `Cannot exceed available stock of ${item.product.currentStock}.`, 'error');
+  const available = availableForSize(item.product, item.selectedSize);
+  if (newQty > available) {
+    emit('add-toast', 'Stock Limit', `Cannot exceed available stock of ${available}.`, 'error');
     return;
   }
 
@@ -93,16 +117,16 @@ const handleUpdateQuantity = (productId: string, delta: number) => {
 };
 
 // Update Item Discount
-const handleUpdateItemDiscount = (productId: string, discountVal: number) => {
-  const existingIndex = cart.value.findIndex(item => item.product.id === productId);
+const handleUpdateItemDiscount = (productId: string, selectedSize: string | undefined, discountVal: number) => {
+  const existingIndex = cart.value.findIndex(item => item.product.id === productId && item.selectedSize === selectedSize);
   if (existingIndex === -1) return;
 
   cart.value[existingIndex].discount = Math.min(100, Math.max(0, discountVal));
 };
 
 // Remove item from Cart
-const handleRemoveFromCart = (productId: string) => {
-  cart.value = cart.value.filter(item => item.product.id !== productId);
+const handleRemoveFromCart = (productId: string, selectedSize?: string) => {
+  cart.value = cart.value.filter(item => item.product.id !== productId || item.selectedSize !== selectedSize);
 };
 
 // Clear POS Cart
@@ -221,7 +245,7 @@ const changeDue = computed(() => {
           v-for="p in activeProducts"
           :key="p.id"
           :disabled="p.currentStock === 0"
-          @click="handleAddToCart(p)"
+          @click="handleProductClick(p)"
           :class="['bg-white dark:bg-zinc-900 border text-left rounded-xl p-3.5 relative overflow-hidden transition-all flex flex-col justify-between duration-150',
             p.currentStock === 0 
               ? 'opacity-40 border-slate-100 dark:border-zinc-800 cursor-not-allowed' 
@@ -279,13 +303,13 @@ const changeDue = computed(() => {
               <span class="font-bold uppercase tracking-wider text-[10px]">Cart is empty. Tap products to sell</span>
             </div>
           </div>
-          <div v-else v-for="item in cart" :key="item.product.id" class="py-3 text-xs flex flex-col gap-1.5">
+          <div v-else v-for="item in cart" :key="`${item.product.id}-${item.selectedSize || 'standard'}`" class="py-3 text-xs flex flex-col gap-1.5">
             <div class="flex justify-between items-start gap-2">
               <div class="flex items-center gap-2">
                 <span class="text-base bg-slate-100 dark:bg-zinc-800 p-1 rounded-md">{{ item.product.image }}</span>
                 <div>
                   <p class="font-bold text-slate-800 dark:text-zinc-200 line-clamp-1">{{ item.product.name }}</p>
-                  <p class="text-[10px] text-zinc-400 font-semibold">{{ formatPHP(item.product.sellingPrice) }} each</p>
+                  <p class="text-[10px] text-zinc-400 font-semibold">{{ formatPHP(item.product.sellingPrice) }} each<span v-if="item.selectedSize"> · Size {{ item.selectedSize }}</span></p>
                 </div>
               </div>
               <span class="font-bold text-slate-900 dark:text-zinc-100">
@@ -297,14 +321,14 @@ const changeDue = computed(() => {
               <!-- Qty count control -->
               <div class="flex items-center gap-2 border border-slate-200 dark:border-zinc-700 rounded-md py-0.5 px-1.5 bg-slate-50 dark:bg-zinc-800/20">
                 <button 
-                  @click="handleUpdateQuantity(item.product.id, -1)"
+                  @click="handleUpdateQuantity(item.product.id, item.selectedSize, -1)"
                   class="text-zinc-500 hover:text-zinc-700"
                 >
                   <Minus class="h-3 w-3" />
                 </button>
                 <span class="font-mono font-bold w-6 text-center text-[11px]">{{ item.quantity }}</span>
                 <button 
-                  @click="handleUpdateQuantity(item.product.id, 1)"
+                  @click="handleUpdateQuantity(item.product.id, item.selectedSize, 1)"
                   class="text-zinc-500 hover:text-zinc-700"
                 >
                   <Plus class="h-3 w-3" />
@@ -320,13 +344,13 @@ const changeDue = computed(() => {
                     min="0"
                     max="100"
                     :value="item.discount"
-                    @input="handleUpdateItemDiscount(item.product.id, Number(($event.target as HTMLInputElement).value))"
+                    @input="handleUpdateItemDiscount(item.product.id, item.selectedSize, Number(($event.target as HTMLInputElement).value))"
                     class="w-full text-right pr-4 py-0.5 text-[10px] bg-zinc-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-md font-bold text-zinc-850"
                   />
                   <span class="absolute right-1 top-0.5 text-[10px] text-zinc-400">%</span>
                 </div>
                 <button
-                  @click="handleRemoveFromCart(item.product.id)"
+                  @click="handleRemoveFromCart(item.product.id, item.selectedSize)"
                   class="p-1 text-zinc-400 hover:text-rose-500 ml-1.5 transition-colors"
                   title="Remove item"
                 >
@@ -448,4 +472,20 @@ const changeDue = computed(() => {
       </div>
     </div>
   </div>
+
+  <Teleport to="body">
+    <div v-if="sizePickerProduct" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
+      <div class="w-full max-w-sm bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 shadow-xl p-5">
+        <div class="flex items-start justify-between gap-4 mb-4">
+          <div><h3 class="font-bold">Select size</h3><p class="text-xs text-zinc-400 mt-1">{{ sizePickerProduct.name }}</p></div>
+          <button @click="sizePickerProduct = null" class="text-zinc-400 text-lg">×</button>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <button v-for="size in productSizes(sizePickerProduct)" :key="size" @click="handleAddToCart(sizePickerProduct!, size)" :disabled="availableForSize(sizePickerProduct, size) <= 0" class="p-3 rounded-lg border text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:border-indigo-500 hover:text-indigo-600">
+            {{ size }} <span class="block text-[10px] text-zinc-400 mt-1">{{ availableForSize(sizePickerProduct, size) }} left</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>

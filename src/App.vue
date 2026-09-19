@@ -49,6 +49,7 @@ import Expenses from './components/Expenses.vue';
 import ProfitDistribution from './components/ProfitDistribution.vue';
 import Reports from './components/Reports.vue';
 import InvestorView from './components/InvestorView.vue';
+import GuestCatalog from './components/GuestCatalog.vue';
 
 // ----------------------------------------------------
 // STATE INITIALIZATION
@@ -65,6 +66,7 @@ const activeExpenses = computed(() => expenses.value.filter((expense) => !expens
 const activePartners = computed(() => partners.value.filter((partner) => !partner.deletedAt));
 
 const activeView = ref<string>('dashboard');
+const isGuestPage = window.location.pathname.replace(/\/+$/, '') === '/guest';
 const darkMode = ref<boolean>(false);
 const toasts = ref<ToastMessage[]>([]);
 const currentTime = ref<string>('');
@@ -392,10 +394,12 @@ const restoreAuthSession = async () => {
 };
 
 onMounted(async () => {
-  try {
-    await restoreAuthSession();
-  } finally {
-    authReady.value = true;
+  if (!isGuestPage) {
+    try {
+      await restoreAuthSession();
+    } finally {
+      authReady.value = true;
+    }
   }
 
   updateTime();
@@ -701,7 +705,8 @@ const handleCheckout = (
       sellingPrice: item.product.sellingPrice,
       quantity: item.quantity,
       discount: item.discount,
-      totalPrice: originalPrice - discountAmount
+      totalPrice: originalPrice - discountAmount,
+      selectedSize: item.selectedSize,
     };
   });
 
@@ -727,9 +732,16 @@ const handleCheckout = (
 
   // Deduct stock counts in products catalog & Log stock movements
   products.value = products.value.map(p => {
-    const cartMatch = cartItems.find(item => item.product.id === p.id);
-    if (cartMatch) {
-      const newQty = Math.max(0, p.currentStock - cartMatch.quantity);
+    const cartMatches = cartItems.filter(item => item.product.id === p.id);
+    if (cartMatches.length) {
+      const soldQuantity = cartMatches.reduce((total, item) => total + item.quantity, 0);
+      const newQty = Math.max(0, p.currentStock - soldQuantity);
+      const nextSizeStocks = { ...(p.sizeStocks || {}) };
+      for (const item of cartMatches) {
+        if (item.selectedSize) {
+          nextSizeStocks[item.selectedSize] = Math.max(0, (nextSizeStocks[item.selectedSize] || 0) - item.quantity);
+        }
+      }
       const newStatus = newQty === 0 
         ? 'Out of Stock' 
         : newQty <= p.minimumStock 
@@ -742,10 +754,10 @@ const handleCheckout = (
         productId: p.id,
         productName: p.name,
         type: 'Out',
-        quantity: -cartMatch.quantity,
+        quantity: -soldQuantity,
         previousStock: p.currentStock,
         newStock: newQty,
-        reason: `Sold via POS ${invoiceNo}`,
+        reason: `Sold via POS ${invoiceNo}${cartMatches.some((item) => item.selectedSize) ? ` (${cartMatches.map((item) => `${item.selectedSize} ×${item.quantity}`).join(', ')})` : ''}`,
         createdAt: new Date().toISOString()
       };
 
@@ -754,6 +766,7 @@ const handleCheckout = (
       return {
         ...p,
         currentStock: newQty,
+        sizeStocks: nextSizeStocks,
         status: newStatus
       };
     }
@@ -858,10 +871,31 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
   };
   distributions.value = [record, ...distributions.value];
 };
+
+const handleGenerateGuestCatalog = async () => {
+  try {
+    // Save pending catalog edits before creating the public snapshot.
+    await saveServerState(getPersistedState());
+    const response = await fetch('/api/guest-catalog/generate', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    const isJsonResponse = response.headers.get('content-type')?.includes('application/json');
+    const payload = isJsonResponse
+      ? await response.json()
+      : { error: 'Guest catalog API is unavailable. Restart npm run dev:api, then try again.' };
+    if (!response.ok) throw new Error(payload.error || 'Unable to generate the guest catalog.');
+    addToast('Guest Catalog Updated', `${payload.productCount} available item${payload.productCount === 1 ? '' : 's'} published to /guest.`, 'success');
+  } catch (error) {
+    addToast('Guest Catalog Failed', error instanceof Error ? error.message : 'Unable to generate the guest catalog.', 'error');
+  }
+};
 </script>
 
 <template>
-  <div v-if="!authReady" class="min-h-screen bg-[#111113] text-zinc-100 flex items-center justify-center p-6 font-sans transition-colors duration-150">
+  <GuestCatalog v-if="isGuestPage" />
+
+  <div v-else-if="!authReady" class="min-h-screen bg-[#111113] text-zinc-100 flex items-center justify-center p-6 font-sans transition-colors duration-150">
     <div class="flex flex-col items-center gap-3">
       <div class="hai-logo-mark" aria-hidden="true">
         <span class="hai-kana">はい</span>
@@ -1145,6 +1179,7 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
             @delete-product="handleDeleteProduct"
             @adjust-stock="handleAdjustStock"
             @import-products="handleImportProducts"
+            @generate-guest-catalog="handleGenerateGuestCatalog"
           />
 
           <POS
