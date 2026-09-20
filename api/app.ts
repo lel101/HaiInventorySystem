@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { accessSync, constants } from 'fs';
 import dotenv from 'dotenv';
 import express from 'express';
 import { mkdir, readdir, readFile, rename, writeFile } from 'fs/promises';
@@ -79,12 +80,41 @@ const migrationsDir = path.join(process.cwd(), 'db', 'migrations');
 const publicCatalogPath = path.join(process.cwd(), 'public', 'catalog.json');
 const serverlessCatalogPath = path.join(os.tmpdir(), 'hai-inventory', 'catalog.json');
 
-export const resolveGuestCatalogPath = (): string => {
-  const isServerlessRuntime = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY);
-  return isServerlessRuntime ? serverlessCatalogPath : publicCatalogPath;
+const canWriteProjectGuestCatalog = (): boolean => {
+  try {
+    accessSync(path.dirname(publicCatalogPath), constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
-export const buildGuestCatalogProducts = (products: Product[]) => products
+export const resolveGuestCatalogPath = (): string => {
+  const isServerlessRuntime = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY);
+  if (!isServerlessRuntime || canWriteProjectGuestCatalog()) {
+    return publicCatalogPath;
+  }
+  return serverlessCatalogPath;
+};
+
+type GuestCatalogProduct = {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  brand: string;
+  srpPrice?: number;
+  storePrice: number;
+  currentStock: number;
+  image?: string;
+  imageUrl?: string;
+  apparelSizes?: string[];
+  shoeGender?: 'Men' | 'Women';
+  shoeSizes?: number[];
+  sizeStocks?: Record<string, number>;
+};
+
+export const buildGuestCatalogProducts = (products: Product[]): GuestCatalogProduct[] => products
   .filter((product) => !product.deletedAt)
   .map(({ id, sku, name, category, brand, srpPrice, storePrice, sellingPrice, currentStock, image, imageUrl, apparelSizes, shoeGender, shoeSizes, sizeStocks }) => ({
     id, sku, name, category, brand, srpPrice: srpPrice || storePrice || sellingPrice, storePrice: storePrice || sellingPrice, currentStock, image,
@@ -726,18 +756,37 @@ app.post('/api/auth/logout', async (req, res) => {
   }
 });
 
+const loadLiveGuestCatalog = async (): Promise<{ generatedAt: string; products: GuestCatalogProduct[] }> => {
+  const client = await pool.connect();
+  try {
+    const state = await loadRelationalState(client);
+    return {
+      generatedAt: new Date().toISOString(),
+      products: buildGuestCatalogProducts(state.products),
+    };
+  } finally {
+    client.release();
+  }
+};
+
 const serveGuestCatalog = async (_req: express.Request, res: express.Response): Promise<void> => {
   try {
-    const catalog = await readFile(guestCatalogPath, 'utf8');
-    res.type('application/json').send(catalog);
+    const liveCatalog = await loadLiveGuestCatalog();
+    res.type('application/json').send(JSON.stringify(liveCatalog, null, 2));
     return;
   } catch {
     try {
-      const fallbackCatalog = await readFile(publicCatalogPath, 'utf8');
-      res.type('application/json').send(fallbackCatalog);
+      const catalog = await readFile(guestCatalogPath, 'utf8');
+      res.type('application/json').send(catalog);
       return;
     } catch {
-      res.status(404).json({ error: 'Catalog file is not available.' });
+      try {
+        const fallbackCatalog = await readFile(publicCatalogPath, 'utf8');
+        res.type('application/json').send(fallbackCatalog);
+        return;
+      } catch {
+        res.status(404).json({ error: 'Catalog file is not available.' });
+      }
     }
   }
 };

@@ -42,8 +42,11 @@ const filteredProducts = computed(() => {
 const availableProducts = computed(() => filteredProducts.value.filter((product) => product.currentStock > 0));
 const soldOutProducts = computed(() => filteredProducts.value.filter((product) => product.currentStock <= 0));
 
-const loadCatalog = async () => {
-  loading.value = true;
+const loadCatalog = async (options: { showLoading?: boolean } = {}) => {
+  const { showLoading = true } = options;
+  if (showLoading) {
+    loading.value = true;
+  }
   error.value = '';
   try {
     const response = await fetch(`/api/catalog.json?updated=${Date.now()}`, { cache: 'no-store' });
@@ -55,7 +58,9 @@ const loadCatalog = async () => {
     products.value = [];
     error.value = loadError instanceof Error ? loadError.message : 'Could not load the catalog.';
   } finally {
-    loading.value = false;
+    if (showLoading) {
+      loading.value = false;
+    }
   }
 };
 
@@ -75,8 +80,8 @@ const adjustZoom = (delta: number) => {
 
 onMounted(() => {
   loadCatalog();
-  // The admin generator rewrites the static JSON file. Polling keeps open guest tabs current.
-  refreshTimer = setInterval(loadCatalog, 30_000);
+  // Keep the public page in sync without re-triggering the loader for every background refresh.
+  refreshTimer = setInterval(() => loadCatalog({ showLoading: false }), 60_000);
 });
 
 onUnmounted(() => {
