@@ -81,7 +81,7 @@ const sizeStocks = ref<Record<string, number>>({});
 const inventoryType = ref<'owned' | 'consignment' | ''>('');
 const productFormError = ref('');
 const APPAREL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
-const EURO_SHOE_SIZES = Array.from({ length: 14 }, (_, index) => index + 35);
+const US_SHOE_SIZES = [5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12];
 
 // Form States for Stock Adjustment
 const adjustingProduct = ref<Product | null>(null);
@@ -267,7 +267,7 @@ const handleAdjustSubmit = () => {
 
 // Export CSV
 const handleExport = () => {
-  const headers = ['SKU', 'Name', 'Description', 'Category', 'Brand', 'Supplier', 'Cost Price', 'Selling Price', 'Store Price', 'Current Stock', 'Minimum Stock', 'Apparel Sizes', 'Shoe Fit', 'EU Shoe Sizes', 'Size Stocks', 'Image URL'];
+  const headers = ['SKU', 'Name', 'Description', 'Category', 'Brand', 'Supplier', 'Cost Price', 'Selling Price', 'Store Price', 'Current Stock', 'Minimum Stock', 'Apparel Sizes', 'Shoe Fit', 'US Shoe Sizes', 'Size Stocks', 'Image URL'];
   const rows = props.products.map(p => [
     p.sku,
     p.name,
@@ -330,7 +330,9 @@ const handleFileChange = (e: Event) => {
       const pApparelSizes = (row[headers.indexOf('apparel sizes')] || '').split('|').map((value) => value.trim()).filter(Boolean);
       const rawShoeGender = row[headers.indexOf('shoe fit')];
       const pShoeGender = rawShoeGender === 'Men' || rawShoeGender === 'Women' ? rawShoeGender : undefined;
-      const pShoeSizes = (row[headers.indexOf('eu shoe sizes')] || '').split('|').map(Number).filter(Number.isFinite);
+      const usShoeSizeColumn = row[headers.indexOf('us shoe sizes')];
+      const legacyShoeSizeColumn = row[headers.indexOf('eu shoe sizes')];
+      const pShoeSizes = (usShoeSizeColumn ?? legacyShoeSizeColumn ?? '').split('|').map(Number).filter(Number.isFinite);
       let pSizeStocks: Record<string, number> = {};
       try { pSizeStocks = JSON.parse(row[headers.indexOf('size stocks')] || '{}'); } catch { pSizeStocks = {}; }
 
@@ -611,7 +613,7 @@ const handleDelete = (id: string) => {
                     <p class="font-bold text-slate-850 dark:text-zinc-200">{{ p.name }}</p>
                     <p v-if="p.apparelSizes?.length || p.shoeSizes?.length" class="text-[10px] text-indigo-500 font-semibold mt-0.5">
                       <span v-if="p.apparelSizes?.length">Sizes: {{ p.apparelSizes.join(', ') }}</span>
-                      <span v-else>{{ p.shoeGender || 'EU' }} EU: {{ p.shoeSizes?.join(', ') }}</span>
+                      <span v-else>{{ p.shoeGender || 'US' }} US: {{ p.shoeSizes?.join(', ') }}</span>
                     </p>
                     <p class="text-[10px] text-zinc-400 font-semibold mt-0.5">{{ p.brand }} • {{ p.supplier }}</p>
                   </div>
@@ -1000,9 +1002,9 @@ const handleDelete = (id: string) => {
                 </div>
               </div>
               <div>
-                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Available Shoe Sizes (EU)</label>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Available Shoe Sizes (US)</label>
                 <div class="flex flex-wrap gap-2">
-                  <label v-for="size in EURO_SHOE_SIZES" :key="size" class="cursor-pointer">
+                  <label v-for="size in US_SHOE_SIZES" :key="size" class="cursor-pointer">
                     <input v-model="shoeSizes" :value="size" type="checkbox" class="sr-only peer" />
                     <span class="inline-flex min-w-10 justify-center px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 text-[11px] font-bold text-slate-500 peer-checked:bg-indigo-600 peer-checked:border-indigo-600 peer-checked:text-white">{{ size }}</span>
                   </label>
