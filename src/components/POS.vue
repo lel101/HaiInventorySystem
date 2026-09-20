@@ -38,6 +38,12 @@ const paymentMethod = ref<PaymentMethod>('Cash');
 const cashAmountPaid = ref<string>('');
 const paymentMethods: PaymentMethod[] = ['Cash', 'GCash', 'Maya', 'Bank Transfer'];
 const sizePickerProduct = ref<Product | null>(null);
+const pendingConfirmation = ref<{
+  title: string;
+  message: string;
+  confirmText: string;
+  onConfirm: () => void;
+} | null>(null);
 
 const productSizes = (product: Product): string[] => product.apparelSizes?.length
   ? product.apparelSizes
@@ -185,8 +191,16 @@ const handleCheckoutSubmit = () => {
     }
   }
 
-  emit('checkout', cart.value, paymentMethod.value, transactionDiscount.value, customerName.value.trim() || undefined);
-  handleClearCart();
+  pendingConfirmation.value = {
+    title: 'Confirm POS checkout',
+    message: `Finalize sale for ${cart.value.length} item(s) totaling ${formatPHP(totals.value.total)}?`,
+    confirmText: 'Confirm Checkout',
+    onConfirm: () => {
+      emit('checkout', cart.value, paymentMethod.value, transactionDiscount.value, customerName.value.trim() || undefined);
+      handleClearCart();
+      pendingConfirmation.value = null;
+    }
+  };
 };
 
 // Cash Change Calculation
@@ -472,6 +486,34 @@ const changeDue = computed(() => {
       </div>
     </div>
   </div>
+
+  <Teleport to="body">
+    <div v-if="pendingConfirmation" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+      <div class="w-full max-w-md rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 shadow-2xl">
+        <div class="mb-4">
+          <p class="text-[10px] uppercase tracking-widest font-black text-slate-500 dark:text-zinc-400">Confirmation Required</p>
+          <h3 class="mt-2 text-lg font-black text-slate-900 dark:text-zinc-50">{{ pendingConfirmation.title }}</h3>
+        </div>
+        <p class="text-sm text-slate-600 dark:text-zinc-300 leading-relaxed">{{ pendingConfirmation.message }}</p>
+        <div class="mt-5 flex gap-2 sm:justify-end">
+          <button
+            type="button"
+            @click="pendingConfirmation = null"
+            class="flex-1 sm:flex-none px-4 py-2.5 rounded-lg border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 font-bold"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            @click="pendingConfirmation.onConfirm()"
+            class="flex-1 sm:flex-none px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700"
+          >
+            {{ pendingConfirmation.confirmText }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 
   <Teleport to="body">
     <div v-if="sizePickerProduct" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">

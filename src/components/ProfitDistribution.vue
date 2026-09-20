@@ -48,6 +48,12 @@ const investorPassword = ref('');
 const credentialDrafts = ref<Record<string, { username: string; password: string }>>({});
 const showNewInvestorPassword = ref(false);
 const visiblePasswords = ref<Record<string, boolean>>({});
+const pendingConfirmation = ref<{
+  title: string;
+  message: string;
+  confirmText: string;
+  onConfirm: () => void;
+} | null>(null);
 
 watch(
   () => props.investorAccounts,
@@ -203,24 +209,32 @@ const handlePostDistribution = () => {
     return;
   }
 
-  const partnerDistributions = props.partners.map(p => ({
-    partnerId: p.id,
-    partnerName: p.name,
-    percentage: p.sharePercentage,
-    amount: monthFinancials.value.netProfit * (p.sharePercentage / 100)
-  }));
+  pendingConfirmation.value = {
+    title: 'Distribute Profit',
+    message: `Distribute ${formatPHP(monthFinancials.value.netProfit)} to ${props.partners.length} partners for ${selectedMonth.value}?`,
+    confirmText: 'Distribute Profit',
+    onConfirm: () => {
+      const partnerDistributions = props.partners.map(p => ({
+        partnerId: p.id,
+        partnerName: p.name,
+        percentage: p.sharePercentage,
+        amount: monthFinancials.value.netProfit * (p.sharePercentage / 100)
+      }));
 
-  emit('post-distribution', {
-    month: selectedMonth.value,
-    revenue: monthFinancials.value.revenue,
-    cogs: monthFinancials.value.cogs,
-    expenses: monthFinancials.value.expenses,
-    netProfit: monthFinancials.value.netProfit,
-    distributedAmount: monthFinancials.value.netProfit,
-    distributions: partnerDistributions
-  });
+      emit('post-distribution', {
+        month: selectedMonth.value,
+        revenue: monthFinancials.value.revenue,
+        cogs: monthFinancials.value.cogs,
+        expenses: monthFinancials.value.expenses,
+        netProfit: monthFinancials.value.netProfit,
+        distributedAmount: monthFinancials.value.netProfit,
+        distributions: partnerDistributions
+      });
 
-  emit('add-toast', 'Profit Distributed', `Successfully distributed ${formatPHP(monthFinancials.value.netProfit)} among ${props.partners.length} partners.`, 'success');
+      emit('add-toast', 'Profit Distributed', `Successfully distributed ${formatPHP(monthFinancials.value.netProfit)} among ${props.partners.length} partners.`, 'success');
+      pendingConfirmation.value = null;
+    }
+  };
 };
 
 const consignmentWithdrawalSummary = computed(() =>
@@ -250,11 +264,19 @@ const handleConsignmentWithdrawal = () => {
     return;
   }
 
-  emit('add-consignment-withdrawal', {
-    month: selectedMonth.value,
-    amount: consignmentMonthFinancials.value.netProfit,
-    note: `Consignment withdrawal for ${selectedMonth.value}`,
-  });
+  pendingConfirmation.value = {
+    title: 'Withdraw Consignment Profit',
+    message: `Record a withdrawal of ${formatPHP(consignmentMonthFinancials.value.netProfit)} for ${selectedMonth.value}?`,
+    confirmText: 'Withdraw Profit',
+    onConfirm: () => {
+      emit('add-consignment-withdrawal', {
+        month: selectedMonth.value,
+        amount: consignmentMonthFinancials.value.netProfit,
+        note: `Consignment withdrawal for ${selectedMonth.value}`,
+      });
+      pendingConfirmation.value = null;
+    }
+  };
 };
 
 const handleDelete = (id: string, name: string) => {
@@ -650,4 +672,32 @@ const togglePasswordVisibility = (partnerId: string) => {
       </div>
     </div>
   </div>
+
+  <Teleport to="body">
+    <div v-if="pendingConfirmation" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+      <div class="w-full max-w-md rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 shadow-2xl">
+        <div class="mb-4">
+          <p class="text-[10px] uppercase tracking-widest font-black text-slate-500 dark:text-zinc-400">Confirmation Required</p>
+          <h3 class="mt-2 text-lg font-black text-slate-900 dark:text-zinc-50">{{ pendingConfirmation.title }}</h3>
+        </div>
+        <p class="text-sm text-slate-600 dark:text-zinc-300 leading-relaxed">{{ pendingConfirmation.message }}</p>
+        <div class="mt-5 flex gap-2 sm:justify-end">
+          <button
+            type="button"
+            @click="pendingConfirmation = null"
+            class="flex-1 sm:flex-none px-4 py-2.5 rounded-lg border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 font-bold"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            @click="pendingConfirmation.onConfirm()"
+            class="flex-1 sm:flex-none px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700"
+          >
+            {{ pendingConfirmation.confirmText }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>

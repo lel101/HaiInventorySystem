@@ -78,7 +78,7 @@ const apparelSizes = ref<string[]>([]);
 const shoeGender = ref<'Men' | 'Women' | ''>('');
 const shoeSizes = ref<number[]>([]);
 const sizeStocks = ref<Record<string, number>>({});
-const inventoryType = ref<'owned' | 'consignment'>('owned');
+const inventoryType = ref<'owned' | 'consignment' | ''>('');
 const productFormError = ref('');
 const APPAREL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 const EURO_SHOE_SIZES = Array.from({ length: 14 }, (_, index) => index + 35);
@@ -112,7 +112,7 @@ const handleOpenAddModal = () => {
   shoeGender.value = '';
   shoeSizes.value = [];
   sizeStocks.value = {};
-  inventoryType.value = 'owned';
+  inventoryType.value = '';
   isProductModalOpen.value = true;
 };
 
@@ -139,7 +139,7 @@ const handleDuplicate = (product: Product) => {
   shoeGender.value = product.shoeGender || '';
   shoeSizes.value = [...(product.shoeSizes || [])];
   sizeStocks.value = { ...(product.sizeStocks || {}) };
-  inventoryType.value = product.inventoryType || 'owned';
+  inventoryType.value = product.inventoryType || '';
   isProductModalOpen.value = true;
 };
 
@@ -166,7 +166,7 @@ const handleOpenEditModal = (product: Product) => {
   shoeGender.value = product.shoeGender || '';
   shoeSizes.value = [...(product.shoeSizes || [])];
   sizeStocks.value = { ...(product.sizeStocks || {}) };
-  inventoryType.value = product.inventoryType || 'owned';
+  inventoryType.value = product.inventoryType || '';
   isProductModalOpen.value = true;
 };
 
@@ -181,6 +181,11 @@ const handleAutoDetails = () => {
 const handleProductSubmit = () => {
   if (!name.value.trim()) return;
   productFormError.value = '';
+
+  if (!inventoryType.value) {
+    productFormError.value = 'Inventory Ownership is required before saving this product.';
+    return;
+  }
 
   const selectedSizes = category.value === 'Apparel'
     ? apparelSizes.value

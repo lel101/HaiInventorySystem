@@ -42,7 +42,7 @@ const category = ref<typeof CATEGORIES[number]>('Miscellaneous');
 const amount = ref('');
 const description = ref('');
 const date = ref(new Date().toISOString().substring(0, 10));
-const inventoryType = ref<'owned' | 'consignment'>('owned');
+const inventoryType = ref<'owned' | 'consignment' | ''>('');
 
 // Category helpers
 const getCategoryIcon = (cat: string) => {
@@ -80,6 +80,10 @@ const handleSubmit = () => {
     emit('add-toast', 'Description Required', 'Please detail the description of this expense.', 'error');
     return;
   }
+  if (!inventoryType.value) {
+    emit('add-toast', 'Ownership Required', 'Please select the ownership type for this expense.', 'error');
+    return;
+  }
 
   emit('add-expense', {
     category: category.value,
@@ -95,7 +99,7 @@ const handleSubmit = () => {
   amount.value = '';
   description.value = '';
   date.value = new Date().toISOString().substring(0, 10);
-  inventoryType.value = 'owned';
+  inventoryType.value = '';
 };
 
 // Filters and computations
@@ -315,6 +319,7 @@ const handleDelete = (id: string) => {
               v-model="inventoryType"
               class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold"
             >
+              <option value="">Select ownership</option>
               <option value="owned">Profit Sharing</option>
               <option value="consignment">Consignment</option>
             </select>
