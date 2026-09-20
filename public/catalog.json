@@ -1,6 +1,31 @@
 {
-  "generatedAt": "2026-09-20T00:59:27.619Z",
+  "generatedAt": "2026-09-20T10:33:17.844Z",
   "products": [
+    {
+      "id": "prod-ppmd50n",
+      "sku": "OTH-ANTA-240",
+      "name": "Anta  Yichen",
+      "category": "Footwear",
+      "brand": "Anta",
+      "srpPrice": 3195,
+      "storePrice": 2800,
+      "currentStock": 4,
+      "image": "👟",
+      "imageUrl": "https://dynamic.zacdn.com/j8EzEsI6208uW_9ZyL7zB_GpKWw=/filters:quality(70):format(webp)/https://static-ph.zacdn.com/p/anta-9027-5895014-2.jpg",
+      "shoeGender": "Women",
+      "shoeSizes": [
+        5.5,
+        7,
+        7.5,
+        8.5
+      ],
+      "sizeStocks": {
+        "7": 1,
+        "5.5": 1,
+        "7.5": 1,
+        "8.5": 1
+      }
+    },
     {
       "id": "prod-nb0ype8",
       "sku": "OTH-JORD-140",
@@ -9,7 +34,7 @@
       "brand": "",
       "srpPrice": 4995,
       "storePrice": 3000,
-      "currentStock": 1,
+      "currentStock": 0,
       "image": "👟",
       "imageUrl": "https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcRh1ycbhYV4oMb0LXrOJXq0c123EcTdzBMmmdd_lmaJTYih8g",
       "shoeGender": "Women",
@@ -17,7 +42,7 @@
         36
       ],
       "sizeStocks": {
-        "36": 1
+        "36": 0
       }
     },
     {

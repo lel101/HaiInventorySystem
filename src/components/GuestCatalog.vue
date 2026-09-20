@@ -131,7 +131,7 @@ onUnmounted(() => {
               <h2 class="mt-1 font-bold text-slate-900">{{ product.name }}</h2>
               <div v-if="product.apparelSizes?.length || product.shoeSizes?.length" class="mt-3 text-xs text-slate-600">
                 <span v-if="product.apparelSizes?.length">Sizes: <template v-for="(size, index) in product.apparelSizes" :key="size">{{ index ? ', ' : '' }}{{ size }} ({{ product.sizeStocks?.[size] || 0 }})</template></span>
-                <span v-else>{{ product.shoeGender || 'EU' }} EU: <template v-for="(size, index) in product.shoeSizes" :key="size">{{ index ? ', ' : '' }}{{ size }} ({{ product.sizeStocks?.[String(size)] || 0 }})</template></span>
+                <span v-else>{{ product.shoeGender || 'US' }} US: <template v-for="(size, index) in product.shoeSizes" :key="size">{{ index ? ', ' : '' }}{{ size }} ({{ product.sizeStocks?.[String(size)] || 0 }})</template></span>
               </div>
               <div class="mt-4 flex items-end justify-between gap-2">
                 <div>

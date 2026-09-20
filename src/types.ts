@@ -20,10 +20,10 @@ export interface Product {
   imageUrl?: string;
   /** Apparel sizes offered by this SKU. Stock remains tracked at the SKU level. */
   apparelSizes?: string[];
-  /** European shoe sizing, optionally marked for men's or women's fit. */
+  /** US shoe sizing, optionally marked for men's or women's fit. */
   shoeGender?: 'Men' | 'Women';
   shoeSizes?: number[];
-  /** Remaining units keyed by an offered apparel or EU shoe size. */
+  /** Remaining units keyed by an offered apparel or US shoe size. */
   sizeStocks?: Record<string, number>;
   inventoryType?: 'owned' | 'consignment';
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
