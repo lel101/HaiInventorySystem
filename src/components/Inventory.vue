@@ -15,10 +15,11 @@ import {
   ChevronRight,
   TrendingDown, 
   TrendingUp, 
-  AlertTriangle 
+  AlertTriangle,
+  Globe2
 } from '@lucide/vue';
 import { Product, StockMovement } from '../types';
-import { formatPHP, generateSKU, generateBarcode, exportToCSV, parseCSV } from '../utils';
+import { formatPHP, generateSKU, generateBarcode, exportToCSV, parseCSV, getInventoryDisplayPricing } from '../utils';
 
 // Props & Emits
 const props = defineProps<{
@@ -32,6 +33,7 @@ const emit = defineEmits<{
   (e: 'delete-product', id: string): void;
   (e: 'adjust-stock', productId: string, quantity: number, type: 'In' | 'Out' | 'Adjustment', reason: string): void;
   (e: 'import-products', imported: Omit<Product, 'id' | 'createdAt' | 'status'>[]): void;
+  (e: 'generate-guest-catalog'): void;
 }>();
 
 const CATEGORIES = ['Footwear', 'Headwear', 'Apparel', 'Accessories', 'Others'];
@@ -41,6 +43,7 @@ const EMOJIS = ['👟', '👕', '🧢', '🧥', '🎒', '🧦', '🕶️', '🧣
 const searchQuery = ref('');
 const categoryFilter = ref('All');
 const statusFilter = ref('All');
+const inventoryTypeFilter = ref<'all' | 'owned' | 'consignment'>('owned');
 const activeTab = ref<'list' | 'history'>('list');
 
 // Pagination
@@ -65,9 +68,20 @@ const brand = ref('');
 const supplier = ref('');
 const costPrice = ref(0);
 const sellingPrice = ref(0);
+const srpPrice = ref(0);
+const storePrice = ref(0);
 const currentStock = ref(0);
 const minimumStock = ref(5);
 const image = ref('📦');
+const imageUrl = ref('');
+const apparelSizes = ref<string[]>([]);
+const shoeGender = ref<'Men' | 'Women' | ''>('');
+const shoeSizes = ref<number[]>([]);
+const sizeStocks = ref<Record<string, number>>({});
+const inventoryType = ref<'owned' | 'consignment' | ''>('');
+const productFormError = ref('');
+const APPAREL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+const EURO_SHOE_SIZES = Array.from({ length: 14 }, (_, index) => index + 35);
 
 // Form States for Stock Adjustment
 const adjustingProduct = ref<Product | null>(null);
@@ -77,6 +91,7 @@ const adjustReason = ref('');
 
 // Open Add Modal
 const handleOpenAddModal = () => {
+  productFormError.value = '';
   editingProduct.value = null;
   name.value = '';
   sku.value = '';
@@ -87,14 +102,23 @@ const handleOpenAddModal = () => {
   supplier.value = '';
   costPrice.value = 0;
   sellingPrice.value = 0;
+  srpPrice.value = 0;
+  storePrice.value = 0;
   currentStock.value = 0;
   minimumStock.value = 5;
   image.value = '📦';
+  imageUrl.value = '';
+  apparelSizes.value = [];
+  shoeGender.value = '';
+  shoeSizes.value = [];
+  sizeStocks.value = {};
+  inventoryType.value = '';
   isProductModalOpen.value = true;
 };
 
 // Duplicate Product
 const handleDuplicate = (product: Product) => {
+  productFormError.value = '';
   editingProduct.value = null;
   name.value = `${product.name} (Copy)`;
   sku.value = generateSKU(product.category, product.name);
@@ -103,16 +127,25 @@ const handleDuplicate = (product: Product) => {
   category.value = product.category;
   brand.value = product.brand;
   supplier.value = product.supplier;
-  costPrice.value = product.costPrice;
+  costPrice.value = product.inventoryType === 'consignment' ? 0 : product.costPrice;
   sellingPrice.value = product.sellingPrice;
+  srpPrice.value = product.srpPrice ?? product.storePrice ?? product.sellingPrice;
+  storePrice.value = product.storePrice || product.sellingPrice;
   currentStock.value = product.currentStock;
   minimumStock.value = product.minimumStock;
   image.value = product.image;
+  imageUrl.value = product.imageUrl || '';
+  apparelSizes.value = [...(product.apparelSizes || [])];
+  shoeGender.value = product.shoeGender || '';
+  shoeSizes.value = [...(product.shoeSizes || [])];
+  sizeStocks.value = { ...(product.sizeStocks || {}) };
+  inventoryType.value = product.inventoryType || '';
   isProductModalOpen.value = true;
 };
 
 // Edit Modal
 const handleOpenEditModal = (product: Product) => {
+  productFormError.value = '';
   editingProduct.value = product;
   name.value = product.name;
   sku.value = product.sku;
@@ -121,11 +154,19 @@ const handleOpenEditModal = (product: Product) => {
   category.value = product.category;
   brand.value = product.brand;
   supplier.value = product.supplier;
-  costPrice.value = product.costPrice;
+  costPrice.value = product.inventoryType === 'consignment' ? 0 : product.costPrice;
   sellingPrice.value = product.sellingPrice;
+  srpPrice.value = product.srpPrice ?? product.storePrice ?? product.sellingPrice;
+  storePrice.value = product.storePrice || product.sellingPrice;
   currentStock.value = product.currentStock;
   minimumStock.value = product.minimumStock;
   image.value = product.image;
+  imageUrl.value = product.imageUrl || '';
+  apparelSizes.value = [...(product.apparelSizes || [])];
+  shoeGender.value = product.shoeGender || '';
+  shoeSizes.value = [...(product.shoeSizes || [])];
+  sizeStocks.value = { ...(product.sizeStocks || {}) };
+  inventoryType.value = product.inventoryType || '';
   isProductModalOpen.value = true;
 };
 
@@ -139,6 +180,38 @@ const handleAutoDetails = () => {
 // Submit Product Form
 const handleProductSubmit = () => {
   if (!name.value.trim()) return;
+  productFormError.value = '';
+
+  if (!inventoryType.value) {
+    productFormError.value = 'Inventory Ownership is required before saving this product.';
+    return;
+  }
+
+  const selectedSizes = category.value === 'Apparel'
+    ? apparelSizes.value
+    : category.value === 'Footwear' ? shoeSizes.value.map(String) : [];
+  const normalizedSizeStocks = Object.fromEntries(selectedSizes.map((size) => [size, Math.max(0, Number(sizeStocks.value[size]) || 0)]));
+  const totalSizeStock = Object.values(normalizedSizeStocks).reduce((total, quantity) => total + quantity, 0);
+  const catalogStock = Number(currentStock.value) || 0;
+  if (selectedSizes.length && totalSizeStock !== catalogStock) {
+    productFormError.value = `Size quantities total ${totalSizeStock}, but current stock is ${catalogStock}. They must match before saving.`;
+    return;
+  }
+  const normalizedCostPrice = inventoryType.value === 'consignment' ? 0 : Number(costPrice.value) || 0;
+  if (inventoryType.value === 'consignment') {
+    if (!Number(srpPrice.value) || Number(srpPrice.value) <= 0) {
+      productFormError.value = 'SRP Price is required for consignment items.';
+      return;
+    }
+  } else if (!Number(costPrice.value) || Number(costPrice.value) <= 0) {
+    productFormError.value = 'Cost Price is required for profit-sharing items.';
+    return;
+  }
+
+  if (!Number(sellingPrice.value) || Number(sellingPrice.value) <= 0) {
+    productFormError.value = 'Selling Price is required.';
+    return;
+  }
 
   const data = {
     sku: sku.value,
@@ -148,11 +221,21 @@ const handleProductSubmit = () => {
     category: category.value,
     brand: brand.value.trim(),
     supplier: supplier.value.trim(),
-    costPrice: Number(costPrice.value) || 0,
+    costPrice: normalizedCostPrice,
     sellingPrice: Number(sellingPrice.value) || 0,
-    currentStock: Number(currentStock.value) || 0,
+    srpPrice: inventoryType.value === 'consignment'
+      ? Number(srpPrice.value) || 0
+      : Number(srpPrice.value) || Number(storePrice.value) || Number(sellingPrice.value) || 0,
+    storePrice: Number(storePrice.value) || Number(sellingPrice.value) || 0,
+    currentStock: catalogStock,
     minimumStock: Number(minimumStock.value) || 0,
     image: image.value,
+    imageUrl: imageUrl.value.trim(),
+    apparelSizes: category.value === 'Apparel' ? apparelSizes.value : [],
+    shoeGender: category.value === 'Footwear' && shoeGender.value ? shoeGender.value : undefined,
+    shoeSizes: category.value === 'Footwear' ? shoeSizes.value : [],
+    sizeStocks: normalizedSizeStocks,
+    inventoryType: inventoryType.value,
   };
 
   if (editingProduct.value) {
@@ -184,7 +267,7 @@ const handleAdjustSubmit = () => {
 
 // Export CSV
 const handleExport = () => {
-  const headers = ['SKU', 'Name', 'Description', 'Category', 'Brand', 'Supplier', 'Cost Price', 'Selling Price', 'Current Stock', 'Minimum Stock'];
+  const headers = ['SKU', 'Name', 'Description', 'Category', 'Brand', 'Supplier', 'Cost Price', 'Selling Price', 'Store Price', 'Current Stock', 'Minimum Stock', 'Apparel Sizes', 'Shoe Fit', 'EU Shoe Sizes', 'Size Stocks', 'Image URL'];
   const rows = props.products.map(p => [
     p.sku,
     p.name,
@@ -192,10 +275,16 @@ const handleExport = () => {
     p.category,
     p.brand,
     p.supplier,
-    p.costPrice.toString(),
+    (p.inventoryType === 'consignment' ? 0 : p.costPrice).toString(),
     p.sellingPrice.toString(),
+    (p.storePrice || p.sellingPrice).toString(),
     p.currentStock.toString(),
-    p.minimumStock.toString()
+    p.minimumStock.toString(),
+    (p.apparelSizes || []).join('|'),
+    p.shoeGender || '',
+    (p.shoeSizes || []).join('|'),
+    JSON.stringify(p.sizeStocks || {}),
+    p.imageUrl || ''
   ]);
   exportToCSV(headers, rows, `Inventory_Report_${new Date().toISOString().slice(0, 10)}`);
 };
@@ -234,8 +323,16 @@ const handleFileChange = (e: Event) => {
       const pSupplier = row[headers.indexOf('supplier')] || 'Unknown';
       const pCost = Number(row[headers.indexOf('cost price')]) || 0;
       const pSell = Number(row[headers.indexOf('selling price')]) || 0;
+      const pSrp = Number(row[headers.indexOf('srp price')]) || Number(row[headers.indexOf('srp')]) || 0;
+      const pStore = Number(row[headers.indexOf('store price')]) || pSell;
       const pStock = Number(row[headers.indexOf('current stock')]) || 0;
       const pMin = Number(row[headers.indexOf('minimum stock')]) || 5;
+      const pApparelSizes = (row[headers.indexOf('apparel sizes')] || '').split('|').map((value) => value.trim()).filter(Boolean);
+      const rawShoeGender = row[headers.indexOf('shoe fit')];
+      const pShoeGender = rawShoeGender === 'Men' || rawShoeGender === 'Women' ? rawShoeGender : undefined;
+      const pShoeSizes = (row[headers.indexOf('eu shoe sizes')] || '').split('|').map(Number).filter(Number.isFinite);
+      let pSizeStocks: Record<string, number> = {};
+      try { pSizeStocks = JSON.parse(row[headers.indexOf('size stocks')] || '{}'); } catch { pSizeStocks = {}; }
 
       importedProducts.push({
         sku: pSku,
@@ -247,9 +344,16 @@ const handleFileChange = (e: Event) => {
         supplier: pSupplier,
         costPrice: pCost,
         sellingPrice: pSell,
+        srpPrice: pSrp || pStore || pSell,
+        storePrice: pStore,
         currentStock: pStock,
         minimumStock: pMin,
-        image: '📦'
+        image: '📦',
+        imageUrl: row[headers.indexOf('image url')] || '',
+        apparelSizes: pApparelSizes,
+        shoeGender: pShoeGender,
+        shoeSizes: pShoeSizes,
+        sizeStocks: pSizeStocks,
       });
     }
 
@@ -271,13 +375,14 @@ const filteredProducts = computed(() => {
       p.category.toLowerCase().includes(searchQuery.value.toLowerCase());
     
     const matchesCategory = categoryFilter.value === 'All' || p.category === categoryFilter.value;
+    const matchesInventoryOwnership = inventoryTypeFilter.value === 'all' || (p.inventoryType || 'owned') === inventoryTypeFilter.value;
     
     const matchesStatus = statusFilter.value === 'All' || 
       (statusFilter.value === 'In Stock' && p.currentStock > p.minimumStock) ||
       (statusFilter.value === 'Low Stock' && p.currentStock > 0 && p.currentStock <= p.minimumStock) ||
       (statusFilter.value === 'Out of Stock' && p.currentStock === 0);
 
-    return matchesSearch && matchesCategory && matchesStatus;
+    return matchesSearch && matchesCategory && matchesInventoryOwnership && matchesStatus;
   });
 });
 
@@ -405,6 +510,17 @@ const handleDelete = (id: string) => {
             <option v-for="cat in CATEGORIES" :key="cat" :value="cat">{{ cat }}</option>
           </select>
 
+          <!-- Ownership Filter -->
+          <select
+            v-model="inventoryTypeFilter"
+            @change="currentPage = 1"
+            class="text-xs bg-zinc-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700/80 rounded-lg py-2 px-3 text-zinc-700 dark:text-zinc-300 focus:outline-none focus:border-indigo-500 font-semibold"
+          >
+            <option value="owned">Profit Sharing</option>
+            <option value="consignment">Consignment</option>
+            <option value="all">All Ownership</option>
+          </select>
+
           <!-- Status Filter -->
           <select
             v-model="statusFilter"
@@ -440,6 +556,14 @@ const handleDelete = (id: string) => {
               title="Export CSV"
             >
               <FileDown class="h-3.5 w-3.5" /> <span class="hidden sm:inline">Export</span>
+            </button>
+
+            <button
+              @click="emit('generate-guest-catalog')"
+              class="p-2 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-300 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/30 flex items-center gap-1 text-[10px]"
+              title="Publish the current in-stock catalog to the public guest page"
+            >
+              <Globe2 class="h-3.5 w-3.5" /> <span class="hidden sm:inline">Guest JSON</span>
             </button>
 
             <button 
@@ -479,11 +603,16 @@ const handleDelete = (id: string) => {
               <!-- Product Info -->
               <td class="p-4">
                 <div class="flex items-center gap-3">
-                  <span class="text-xl w-8 h-8 rounded-lg bg-slate-50 dark:bg-zinc-800 flex items-center justify-center">
-                    {{ p.image }}
+                  <span class="text-xl w-8 h-8 rounded-lg bg-slate-50 dark:bg-zinc-800 flex items-center justify-center overflow-hidden">
+                    <img v-if="p.imageUrl" :src="p.imageUrl" :alt="p.name" class="w-full h-full object-cover" />
+                    <template v-else>{{ p.image }}</template>
                   </span>
                   <div>
                     <p class="font-bold text-slate-850 dark:text-zinc-200">{{ p.name }}</p>
+                    <p v-if="p.apparelSizes?.length || p.shoeSizes?.length" class="text-[10px] text-indigo-500 font-semibold mt-0.5">
+                      <span v-if="p.apparelSizes?.length">Sizes: {{ p.apparelSizes.join(', ') }}</span>
+                      <span v-else>{{ p.shoeGender || 'EU' }} EU: {{ p.shoeSizes?.join(', ') }}</span>
+                    </p>
                     <p class="text-[10px] text-zinc-400 font-semibold mt-0.5">{{ p.brand }} • {{ p.supplier }}</p>
                   </div>
                 </div>
@@ -506,7 +635,10 @@ const handleDelete = (id: string) => {
                 <div>
                   <span class="font-bold text-slate-900 dark:text-zinc-100">{{ formatPHP(p.sellingPrice) }}</span>
                 </div>
-                <div class="text-[10px] text-zinc-400 font-semibold">Cost: {{ formatPHP(p.costPrice) }}</div>
+                <div class="text-[10px] text-zinc-400 font-semibold">
+                  {{ getInventoryDisplayPricing(p).secondaryLabel }}: {{ formatPHP(getInventoryDisplayPricing(p).secondaryValue) }}
+                </div>
+                <div class="text-[10px] text-indigo-500 font-semibold">Store: {{ formatPHP(getInventoryDisplayPricing(p).storeValue) }}</div>
               </td>
 
               <!-- Stock -->
@@ -730,9 +862,25 @@ const handleDelete = (id: string) => {
               </div>
             </div>
 
+            <div>
+              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Inventory Ownership</label>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="cursor-pointer" :class="editingProduct ? 'pointer-events-none opacity-70' : ''">
+                  <input v-model="inventoryType" value="owned" type="radio" class="sr-only peer" :disabled="!!editingProduct" />
+                  <span class="block p-3 rounded-lg border border-slate-200 dark:border-zinc-700 text-xs font-bold text-slate-600 dark:text-zinc-300 peer-checked:border-indigo-600 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 dark:peer-checked:bg-indigo-950/30">Owned / Profit Sharing</span>
+                </label>
+                <label class="cursor-pointer" :class="editingProduct ? 'pointer-events-none opacity-70' : ''">
+                  <input v-model="inventoryType" value="consignment" type="radio" class="sr-only peer" :disabled="!!editingProduct" />
+                  <span class="block p-3 rounded-lg border border-slate-200 dark:border-zinc-700 text-xs font-bold text-slate-600 dark:text-zinc-300 peer-checked:border-amber-500 peer-checked:bg-amber-50 peer-checked:text-amber-700 dark:peer-checked:bg-amber-950/30">Consignment</span>
+                </label>
+              </div>
+              <p v-if="editingProduct" class="mt-1 text-[10px] text-amber-600">Ownership is locked after the product is saved.</p>
+              <p v-else class="mt-1 text-[10px] text-zinc-400">Consignment sales are excluded from partner profit sharing and investor access.</p>
+            </div>
+
             <!-- Pricing -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div v-if="inventoryType !== 'consignment'">
                 <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Cost Price (PHP) *</label>
                 <input
                   type="number"
@@ -741,6 +889,18 @@ const handleDelete = (id: string) => {
                   required
                   v-model="costPrice"
                   class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold"
+                />
+              </div>
+
+              <div v-else>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">SRP Price (PHP) *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  v-model="srpPrice"
+                  class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none font-bold"
                 />
               </div>
 
@@ -754,6 +914,17 @@ const handleDelete = (id: string) => {
                   v-model="sellingPrice"
                   class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none font-bold"
                 />
+              </div>
+              <div>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Store Price (PHP)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  v-model="storePrice"
+                  class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 focus:outline-none font-bold"
+                />
+                <span class="text-[9px] text-zinc-400 mt-1 block font-semibold uppercase">Guest/store retail price</span>
               </div>
             </div>
 
@@ -782,9 +953,17 @@ const handleDelete = (id: string) => {
               </div>
             </div>
 
-            <!-- Emojis Selector -->
+            <!-- Product image -->
             <div>
-              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Product Icon *</label>
+              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Product Image URL</label>
+              <input
+                v-model="imageUrl"
+                type="url"
+                placeholder="https://… (Supabase Storage public URL)"
+                class="w-full p-2 mb-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-medium"
+              />
+              <p class="text-[10px] text-zinc-400 mb-2">Paste the public URL from your Supabase Storage bucket. The icon below is used as a fallback.</p>
+              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Fallback Icon</label>
               <div class="flex flex-wrap gap-2 p-2 bg-zinc-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700 rounded-lg">
                 <button
                   v-for="em in EMOJIS"
@@ -799,6 +978,52 @@ const handleDelete = (id: string) => {
                 </button>
               </div>
             </div>
+
+            <div v-if="category === 'Apparel'">
+              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Available Apparel Sizes</label>
+              <div class="flex flex-wrap gap-2">
+                <label v-for="size in APPAREL_SIZES" :key="size" class="cursor-pointer">
+                  <input v-model="apparelSizes" :value="size" type="checkbox" class="sr-only peer" />
+                  <span class="inline-flex min-w-10 justify-center px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 text-[11px] font-bold text-slate-500 peer-checked:bg-indigo-600 peer-checked:border-indigo-600 peer-checked:text-white">{{ size }}</span>
+                </label>
+              </div>
+            </div>
+
+            <div v-if="category === 'Footwear'" class="space-y-3">
+              <div>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Shoe Fit</label>
+                <div class="flex gap-2">
+                  <label v-for="fit in ['Men', 'Women']" :key="fit" class="cursor-pointer">
+                    <input v-model="shoeGender" :value="fit" type="radio" class="sr-only peer" />
+                    <span class="inline-flex px-4 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 text-[11px] font-bold text-slate-500 peer-checked:bg-indigo-600 peer-checked:border-indigo-600 peer-checked:text-white">{{ fit }}</span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Available Shoe Sizes (EU)</label>
+                <div class="flex flex-wrap gap-2">
+                  <label v-for="size in EURO_SHOE_SIZES" :key="size" class="cursor-pointer">
+                    <input v-model="shoeSizes" :value="size" type="checkbox" class="sr-only peer" />
+                    <span class="inline-flex min-w-10 justify-center px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 text-[11px] font-bold text-slate-500 peer-checked:bg-indigo-600 peer-checked:border-indigo-600 peer-checked:text-white">{{ size }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="(category === 'Apparel' && apparelSizes.length) || (category === 'Footwear' && shoeSizes.length)">
+              <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Stock Available Per Size</label>
+              <p class="text-[10px] text-zinc-400 mb-2">These quantities are used by POS and shown on the guest catalog.</p>
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <label v-for="size in (category === 'Apparel' ? apparelSizes : shoeSizes.map(String))" :key="size" class="flex items-center gap-2 p-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/30">
+                  <span class="w-10 text-xs font-bold text-slate-600 dark:text-zinc-300">{{ size }}</span>
+                  <input v-model.number="sizeStocks[size]" type="number" min="0" class="min-w-0 flex-1 p-1 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded text-xs font-bold" />
+                </label>
+              </div>
+            </div>
+
+            <p v-if="productFormError" class="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900 text-xs font-semibold text-rose-700 dark:text-rose-300">
+              {{ productFormError }}
+            </p>
 
             <!-- Description -->
             <div>

@@ -13,6 +13,8 @@ import { formatPHP } from '../utils';
 const props = defineProps<{
   products: Product[];
   transactions: Transaction[];
+  consignmentTransactions?: Transaction[];
+  consignmentWithdrawals?: Array<{ month: string; amount: number }>;
 }>();
 
 const emit = defineEmits<{
@@ -26,6 +28,9 @@ const stats = computed(() => {
   let todaySales = 0;
   let todayProfit = 0;
   let monthlySales = 0;
+  let todayConsignmentSales = 0;
+  let todayConsignmentProfit = 0;
+  let monthlyConsignmentSales = 0;
 
   props.transactions.forEach(tx => {
     const txDate = tx.createdAt.split('T')[0];
@@ -39,15 +44,32 @@ const stats = computed(() => {
     }
   });
 
+  (props.consignmentTransactions || []).forEach(tx => {
+    const txDate = tx.createdAt.split('T')[0];
+    if (txDate === todayStr) {
+      todayConsignmentSales += tx.total;
+      todayConsignmentProfit += tx.profit;
+    }
+    const txMonth = tx.createdAt.substring(0, 7);
+    if (txMonth === currentMonthStr) {
+      monthlyConsignmentSales += tx.total;
+    }
+  });
+
   const lowStockCount = props.products.filter(p => p.currentStock > 0 && p.currentStock <= p.minimumStock).length;
   const outOfStockCount = props.products.filter(p => p.currentStock === 0).length;
+  const totalConsignmentWithdrawn = (props.consignmentWithdrawals || []).reduce((sum, item) => sum + item.amount, 0);
 
   return {
     todaySales,
     todayProfit,
     monthlySales,
+    todayConsignmentSales,
+    todayConsignmentProfit,
+    monthlyConsignmentSales,
     lowStockCount,
-    outOfStockCount
+    outOfStockCount,
+    totalConsignmentWithdrawn
   };
 });
 
@@ -80,9 +102,39 @@ const topSellingProducts = computed(() => {
     .slice(0, 5);
 });
 
+const consignmentTopSellingProducts = computed(() => {
+  const productSalesMap: { [key: string]: { name: string; quantity: number; revenue: number; image: string } } = {};
+
+  (props.consignmentTransactions || []).forEach(tx => {
+    tx.items.forEach(item => {
+      if (!productSalesMap[item.productId]) {
+        const originalProd = props.products.find(p => p.id === item.productId);
+        productSalesMap[item.productId] = {
+          name: item.name,
+          quantity: 0,
+          revenue: 0,
+          image: originalProd?.image || '📦'
+        };
+      }
+      productSalesMap[item.productId].quantity += item.quantity;
+      productSalesMap[item.productId].revenue += item.totalPrice;
+    });
+  });
+
+  return Object.values(productSalesMap)
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 5);
+});
+
 // Recent Transactions computation
 const recentTx = computed(() => {
   return [...props.transactions]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5);
+});
+
+const consignmentRecentTx = computed(() => {
+  return [...(props.consignmentTransactions || [])]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 5);
 });
@@ -92,6 +144,22 @@ const categoryChartData = computed(() => {
   const catMap: { [key: string]: { name: string; Stock: number; Value: number } } = {};
   
   props.products.forEach(p => {
+    if ((p.inventoryType || 'owned') !== 'owned') return;
+    if (!catMap[p.category]) {
+      catMap[p.category] = { name: p.category, Stock: 0, Value: 0 };
+    }
+    catMap[p.category].Stock += p.currentStock;
+    catMap[p.category].Value += p.currentStock * p.costPrice;
+  });
+
+  return Object.values(catMap);
+});
+
+const consignmentCategoryChartData = computed(() => {
+  const catMap: { [key: string]: { name: string; Stock: number; Value: number } } = {};
+
+  props.products.forEach(p => {
+    if ((p.inventoryType || 'owned') !== 'consignment') return;
     if (!catMap[p.category]) {
       catMap[p.category] = { name: p.category, Stock: 0, Value: 0 };
     }
@@ -110,29 +178,41 @@ const maxCategoryValuation = computed(() => {
 
 // Daily Sales & Profit for last 7 days computation
 const dailyChartData = computed(() => {
-  const chartData: { date: string; Sales: number; Profit: number }[] = [];
-  
+  const chartData: { date: string; ProfitSharingSales: number; ProfitSharingProfit: number; ConsignmentSales: number; ConsignmentProfit: number }[] = [];
+
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const fullDateKey = d.toISOString().split('T')[0];
 
-    let daySales = 0;
-    let dayProfit = 0;
+    let ownedSales = 0;
+    let ownedProfit = 0;
+    let consignmentSales = 0;
+    let consignmentProfit = 0;
 
     props.transactions.forEach(tx => {
       const txDate = tx.createdAt.split('T')[0];
       if (txDate === fullDateKey) {
-        daySales += tx.total;
-        dayProfit += tx.profit;
+        ownedSales += tx.total;
+        ownedProfit += tx.profit;
+      }
+    });
+
+    (props.consignmentTransactions || []).forEach(tx => {
+      const txDate = tx.createdAt.split('T')[0];
+      if (txDate === fullDateKey) {
+        consignmentSales += tx.total;
+        consignmentProfit += tx.profit;
       }
     });
 
     chartData.push({
       date: dateStr,
-      Sales: daySales,
-      Profit: dayProfit
+      ProfitSharingSales: ownedSales,
+      ProfitSharingProfit: ownedProfit,
+      ConsignmentSales: consignmentSales,
+      ConsignmentProfit: consignmentProfit
     });
   }
 
@@ -142,42 +222,49 @@ const dailyChartData = computed(() => {
 const maxDailyValue = computed(() => {
   let max = 5000;
   dailyChartData.value.forEach(d => {
-    if (d.Sales > max) max = d.Sales;
-    if (d.Profit > max) max = d.Profit;
+    if (d.ProfitSharingSales > max) max = d.ProfitSharingSales;
+    if (d.ProfitSharingProfit > max) max = d.ProfitSharingProfit;
+    if (d.ConsignmentSales > max) max = d.ConsignmentSales;
+    if (d.ConsignmentProfit > max) max = d.ConsignmentProfit;
   });
   return max;
 });
 
-// Generate SVG Polyline points for daily sales & profit
-const generatePolylinePoints = (key: 'Sales' | 'Profit', width = 500, height = 200) => {
+const generateSeriesPoints = (
+  series: 'ProfitSharingSales' | 'ProfitSharingProfit' | 'ConsignmentSales' | 'ConsignmentProfit',
+  width = 500,
+  height = 200
+) => {
   const data = dailyChartData.value;
   if (data.length === 0) return '';
   const maxVal = maxDailyValue.value;
   const paddingX = 40;
   const paddingY = 20;
-  
+
   const stepX = (width - paddingX * 2) / (data.length - 1);
   return data.map((d, i) => {
     const x = paddingX + i * stepX;
-    const value = d[key];
-    // invert Y since SVG Y starts at top
+    const value = d[series];
     const y = height - paddingY - (value / maxVal) * (height - paddingY * 2);
     return `${x},${y}`;
   }).join(' ');
 };
 
-// Generate SVG Polygon points for filled areas under polylines
-const generatePolygonPoints = (key: 'Sales' | 'Profit', width = 500, height = 200) => {
-  const points = generatePolylinePoints(key, width, height);
+const generatePolygonPoints = (
+  series: 'ProfitSharingSales' | 'ProfitSharingProfit' | 'ConsignmentSales' | 'ConsignmentProfit',
+  width = 500,
+  height = 200
+) => {
+  const points = generateSeriesPoints(series, width, height);
   if (!points) return '';
   const paddingX = 40;
   const paddingY = 20;
   const stepX = (width - paddingX * 2) / (dailyChartData.value.length - 1);
-  
+
   const startX = paddingX;
   const endX = paddingX + (dailyChartData.value.length - 1) * stepX;
   const floorY = height - paddingY;
-  
+
   return `${startX},${floorY} ${points} ${endX},${floorY}`;
 };
 </script>
@@ -193,7 +280,7 @@ const generatePolygonPoints = (key: 'Sales' | 'Profit', width = 500, height = 20
     </div>
 
     <!-- Overview Cards Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" id="stats-grid">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-6" id="stats-grid">
       <!-- Today's Sales -->
       <div class="bg-white dark:bg-zinc-900 p-6 border border-slate-200 dark:border-zinc-800 rounded-xl shadow-sm flex flex-col justify-between" id="stat-card-today-sales">
         <div>
@@ -217,6 +304,24 @@ const generatePolygonPoints = (key: 'Sales' | 'Profit', width = 500, height = 20
         </div>
       </div>
 
+      <!-- Profit Sharing Revenue -->
+      <div class="bg-white dark:bg-zinc-900 p-6 border border-slate-200 dark:border-zinc-800 rounded-xl shadow-sm flex flex-col justify-between" id="stat-card-shared-profit">
+        <div>
+          <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1 tracking-wider">Profit Sharing</p>
+          <p class="text-2xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight font-display">{{ formatPHP(stats.todaySales) }}</p>
+          <p class="mt-2 text-[10px] font-bold text-slate-500 uppercase">Today</p>
+        </div>
+      </div>
+
+      <!-- Consignment Sales -->
+      <div class="bg-white dark:bg-zinc-900 p-6 border border-slate-200 dark:border-zinc-800 rounded-xl shadow-sm flex flex-col justify-between" id="stat-card-consignment-sales">
+        <div>
+          <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1 tracking-wider">Consignment Sales</p>
+          <p class="text-2xl font-black text-amber-600 dark:text-amber-400 tracking-tight font-display">{{ formatPHP(stats.todayConsignmentSales) }}</p>
+          <p class="mt-2 text-[10px] font-bold text-slate-500 uppercase">Today</p>
+        </div>
+      </div>
+
       <!-- Monthly Performance -->
       <div class="bg-white dark:bg-zinc-900 p-6 border border-slate-200 dark:border-zinc-800 rounded-xl shadow-sm flex flex-col justify-between" id="stat-card-monthly">
         <div>
@@ -231,7 +336,7 @@ const generatePolygonPoints = (key: 'Sales' | 'Profit', width = 500, height = 20
         </div>
       </div>
 
-      <!-- Inventory Value & Alerts -->
+      <!-- Inventory Alerts -->
       <div class="bg-white dark:bg-zinc-900 p-6 border border-slate-200 dark:border-zinc-800 rounded-xl shadow-sm flex flex-col justify-between" id="stat-card-inventory">
         <div>
           <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1 tracking-wider">Inventory Alerts</p>
@@ -254,11 +359,12 @@ const generatePolygonPoints = (key: 'Sales' | 'Profit', width = 500, height = 20
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6" id="charts-row">
       <!-- Sales & Profit Area Chart -->
       <div class="lg:col-span-2 bg-white dark:bg-zinc-900 p-6 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm" id="sales-trend-container">
-        <div class="flex justify-between items-center mb-6">
+        <div class="flex justify-between items-center mb-6 gap-4">
           <div>
             <h4 class="text-xs font-bold text-slate-700 dark:text-zinc-350 uppercase tracking-widest font-display">Sales & Profit Trend</h4>
-            <p class="text-[10px] text-slate-400 dark:text-zinc-500 uppercase font-bold tracking-wider mt-0.5">Last 7 days performance metrics</p>
+            <p class="text-[10px] text-slate-400 dark:text-zinc-500 uppercase font-bold tracking-wider mt-0.5">Profit sharing and consignment performance</p>
           </div>
+
           <button 
             @click="handleNavigate('pos')"
             class="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 uppercase tracking-wider"
@@ -293,26 +399,29 @@ const generatePolygonPoints = (key: 'Sales' | 'Profit', width = 500, height = 20
             <polygon :points="generatePolygonPoints('Profit', 500, 200)" fill="url(#colorProfitVue)" />
 
             <!-- Polyline Trails -->
-            <polyline :points="generatePolylinePoints('Sales', 500, 200)" fill="none" stroke="#4f46e5" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-            <polyline :points="generatePolylinePoints('Profit', 500, 200)" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+            <polygon :points="generatePolygonPoints('ProfitSharingSales', 500, 200)" fill="url(#colorSalesVue)" opacity="0.35" />
+            <polygon :points="generatePolygonPoints('ConsignmentSales', 500, 200)" fill="url(#colorProfitVue)" opacity="0.2" />
+
+            <polyline :points="generateSeriesPoints('ProfitSharingSales', 500, 200)" fill="none" stroke="#4f46e5" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+            <polyline :points="generateSeriesPoints('ConsignmentSales', 500, 200)" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
 
             <!-- Circular Points -->
             <template v-for="(d, i) in dailyChartData" :key="i">
               <circle 
-                v-if="d.Sales > 0"
+                v-if="d.ProfitSharingSales > 0"
                 :cx="40 + i * ((500 - 80) / (dailyChartData.length - 1))" 
-                :cy="200 - 20 - (d.Sales / maxDailyValue) * (200 - 40)" 
+                :cy="200 - 20 - (d.ProfitSharingSales / maxDailyValue) * (200 - 40)" 
                 r="3" 
                 fill="#4f46e5" 
                 stroke="#ffffff" 
                 stroke-width="1"
               />
               <circle 
-                v-if="d.Profit > 0"
+                v-if="d.ConsignmentSales > 0"
                 :cx="40 + i * ((500 - 80) / (dailyChartData.length - 1))" 
-                :cy="200 - 20 - (d.Profit / maxDailyValue) * (200 - 40)" 
+                :cy="200 - 20 - (d.ConsignmentSales / maxDailyValue) * (200 - 40)" 
                 r="3" 
-                fill="#10b981" 
+                fill="#f59e0b" 
                 stroke="#ffffff" 
                 stroke-width="1"
               />
@@ -325,8 +434,8 @@ const generatePolygonPoints = (key: 'Sales' | 'Profit', width = 500, height = 20
           </div>
 
           <div class="absolute top-2 left-2 text-[9px] font-bold text-slate-400 dark:text-zinc-500 font-mono flex items-center gap-3 bg-white/80 dark:bg-zinc-950/80 p-1 px-2 rounded border border-slate-100 dark:border-zinc-800">
-            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-indigo-600 block"></span> Sales</span>
-            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-emerald-500 block"></span> Net Profit</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-indigo-600 block"></span> Profit Sharing</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-amber-500 block"></span> Consignment</span>
             <span class="text-slate-300 dark:text-zinc-700">| Max: {{ formatPHP(maxDailyValue) }}</span>
           </div>
         </div>
@@ -340,23 +449,48 @@ const generatePolygonPoints = (key: 'Sales' | 'Profit', width = 500, height = 20
             <p class="text-[10px] text-slate-400 dark:text-zinc-500 uppercase font-bold tracking-wider mt-0.5">Asset distribution by business category</p>
           </div>
           
-          <div class="space-y-4" id="category-bar-chart">
-            <div v-if="categoryChartData.length === 0" class="py-12 text-center text-xs text-zinc-400">
-              No inventory data available
+          <div class="space-y-5" id="category-bar-chart">
+            <div>
+              <p class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3">Profit sharing data</p>
+              <div v-if="categoryChartData.length === 0" class="py-3 text-center text-xs text-zinc-400">
+                No profit-sharing inventory data available
+              </div>
+              <div v-else v-for="(cat, idx) in categoryChartData" :key="`owned-${idx}`" class="space-y-1 mb-3">
+                <div class="flex justify-between text-xs">
+                  <span class="font-semibold text-slate-700 dark:text-zinc-300">{{ cat.name }}</span>
+                  <span class="font-bold text-slate-900 dark:text-zinc-50">{{ formatPHP(cat.Value) }}</span>
+                </div>
+                <div class="w-full h-3 bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                  <div 
+                    class="h-full bg-indigo-600 rounded-full transition-all duration-500"
+                    :style="{ width: `${(cat.Value / maxCategoryValuation) * 100}%` }"
+                  ></div>
+                </div>
+                <div class="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">
+                  {{ cat.Stock }} Items in stock
+                </div>
+              </div>
             </div>
-            <div v-else v-for="(cat, idx) in categoryChartData" :key="idx" class="space-y-1">
-              <div class="flex justify-between text-xs">
-                <span class="font-semibold text-slate-700 dark:text-zinc-300">{{ cat.name }}</span>
-                <span class="font-bold text-slate-900 dark:text-zinc-50">{{ formatPHP(cat.Value) }}</span>
+
+            <div class="border-t border-slate-100 dark:border-zinc-800 pt-4">
+              <p class="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-3">Consignment data</p>
+              <div v-if="consignmentCategoryChartData.length === 0" class="py-3 text-center text-xs text-zinc-400">
+                No consignment inventory data available
               </div>
-              <div class="w-full h-3 bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-                <div 
-                  class="h-full bg-indigo-600 rounded-full transition-all duration-500"
-                  :style="{ width: `${(cat.Value / maxCategoryValuation) * 100}%` }"
-                ></div>
-              </div>
-              <div class="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">
-                {{ cat.Stock }} Items in stock
+              <div v-else v-for="(cat, idx) in consignmentCategoryChartData" :key="`consignment-${idx}`" class="space-y-1 mb-3">
+                <div class="flex justify-between text-xs">
+                  <span class="font-semibold text-slate-700 dark:text-zinc-300">{{ cat.name }}</span>
+                  <span class="font-bold text-slate-900 dark:text-zinc-50">{{ formatPHP(cat.Value) }}</span>
+                </div>
+                <div class="w-full h-3 bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                  <div 
+                    class="h-full bg-amber-500 rounded-full transition-all duration-500"
+                    :style="{ width: `${(cat.Value / maxCategoryValuation) * 100}%` }"
+                  ></div>
+                </div>
+                <div class="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">
+                  {{ cat.Stock }} Items in stock
+                </div>
               </div>
             </div>
           </div>
@@ -381,26 +515,54 @@ const generatePolygonPoints = (key: 'Sales' | 'Profit', width = 500, height = 20
           </button>
         </div>
 
-        <div class="divide-y divide-slate-100 dark:divide-zinc-800/80" id="recent-tx-list">
-          <div v-if="recentTx.length === 0" class="py-8 text-center text-zinc-400 text-xs">
-            No transactions completed yet. Go to POS to start!
-          </div>
-          <div v-else v-for="tx in recentTx" :key="tx.id" class="py-3.5 flex justify-between items-center text-xs">
-            <div>
-              <div class="flex items-center gap-2">
-                <span class="font-semibold text-slate-800 dark:text-zinc-200">{{ tx.invoiceNo }}</span>
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 uppercase tracking-wide">
-                  {{ tx.paymentMethod }}
-                </span>
-              </div>
-              <p class="text-slate-400 dark:text-zinc-500 text-[11px] mt-0.5 font-medium">
-                {{ new Date(tx.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) }}
-                {{ tx.customerName ? ` • ${tx.customerName}` : '' }}
-              </p>
+        <div class="space-y-5 divide-y divide-slate-100 dark:divide-zinc-800/80" id="recent-tx-list">
+          <div>
+            <p class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3">Profit sharing data</p>
+            <div v-if="recentTx.length === 0" class="py-4 text-center text-zinc-400 text-xs">
+              No profit-sharing transactions yet.
             </div>
-            <div class="text-right">
-              <span class="font-bold text-slate-900 dark:text-zinc-50">{{ formatPHP(tx.total) }}</span>
-              <p class="text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">+{{ formatPHP(tx.profit) }} profit</p>
+            <div v-else v-for="tx in recentTx" :key="`owned-${tx.id}`" class="py-3.5 flex justify-between items-center text-xs">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold text-slate-800 dark:text-zinc-200">{{ tx.invoiceNo }}</span>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 uppercase tracking-wide">
+                    {{ tx.paymentMethod }}
+                  </span>
+                </div>
+                <p class="text-slate-400 dark:text-zinc-500 text-[11px] mt-0.5 font-medium">
+                  {{ new Date(tx.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) }}
+                  {{ tx.customerName ? ` • ${tx.customerName}` : '' }}
+                </p>
+              </div>
+              <div class="text-right">
+                <span class="font-bold text-slate-900 dark:text-zinc-50">{{ formatPHP(tx.total) }}</span>
+                <p class="text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">+{{ formatPHP(tx.profit) }} profit</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-5">
+            <p class="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-3">Consignment data</p>
+            <div v-if="consignmentRecentTx.length === 0" class="py-4 text-center text-zinc-400 text-xs">
+              No consignment transactions yet.
+            </div>
+            <div v-else v-for="tx in consignmentRecentTx" :key="`consignment-${tx.id}`" class="py-3.5 flex justify-between items-center text-xs">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold text-slate-800 dark:text-zinc-200">{{ tx.invoiceNo }}</span>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 uppercase tracking-wide">
+                    {{ tx.paymentMethod }}
+                  </span>
+                </div>
+                <p class="text-slate-400 dark:text-zinc-500 text-[11px] mt-0.5 font-medium">
+                  {{ new Date(tx.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) }}
+                  {{ tx.customerName ? ` • ${tx.customerName}` : '' }}
+                </p>
+              </div>
+              <div class="text-right">
+                <span class="font-bold text-slate-900 dark:text-zinc-50">{{ formatPHP(tx.total) }}</span>
+                <p class="text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">+{{ formatPHP(tx.profit) }} profit</p>
+              </div>
             </div>
           </div>
         </div>
@@ -413,20 +575,42 @@ const generatePolygonPoints = (key: 'Sales' | 'Profit', width = 500, height = 20
           <h4 class="text-xs font-bold text-slate-700 dark:text-zinc-350 uppercase tracking-widest mb-4 font-display">Top Selling Products</h4>
           
           <div class="space-y-4" id="top-selling-list">
-            <div v-if="topSellingProducts.length === 0" class="py-6 text-center text-zinc-400 text-xs">
-              No products sold yet.
-            </div>
-            <div v-else v-for="(item, index) in topSellingProducts" :key="index" class="flex justify-between items-center text-xs">
-              <div class="flex items-center gap-3">
-                <span class="text-lg w-8 h-8 rounded-lg bg-slate-50 dark:bg-zinc-800 flex items-center justify-center">
-                  {{ item.image }}
-                </span>
-                <div>
-                  <p class="font-semibold text-slate-800 dark:text-zinc-200 line-clamp-1">{{ item.name }}</p>
-                  <p class="text-slate-400 dark:text-zinc-500 text-[10px] font-medium">{{ item.quantity }} units sold</p>
-                </div>
+            <div>
+              <p class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3">Profit sharing data</p>
+              <div v-if="topSellingProducts.length === 0" class="py-4 text-center text-zinc-400 text-xs">
+                No profit-sharing products sold yet.
               </div>
-              <span class="font-bold text-slate-900 dark:text-zinc-50">{{ formatPHP(item.revenue) }}</span>
+              <div v-else v-for="(item, index) in topSellingProducts" :key="`owned-${index}`" class="flex justify-between items-center text-xs mb-3">
+                <div class="flex items-center gap-3">
+                  <span class="text-lg w-8 h-8 rounded-lg bg-slate-50 dark:bg-zinc-800 flex items-center justify-center">
+                    {{ item.image }}
+                  </span>
+                  <div>
+                    <p class="font-semibold text-slate-800 dark:text-zinc-200 line-clamp-1">{{ item.name }}</p>
+                    <p class="text-slate-400 dark:text-zinc-500 text-[10px] font-medium">{{ item.quantity }} units sold</p>
+                  </div>
+                </div>
+                <span class="font-bold text-slate-900 dark:text-zinc-50">{{ formatPHP(item.revenue) }}</span>
+              </div>
+            </div>
+
+            <div class="border-t border-slate-100 dark:border-zinc-800 pt-4">
+              <p class="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-3">Consignment data</p>
+              <div v-if="consignmentTopSellingProducts.length === 0" class="py-4 text-center text-zinc-400 text-xs">
+                No consignment products sold yet.
+              </div>
+              <div v-else v-for="(item, index) in consignmentTopSellingProducts" :key="`consignment-${index}`" class="flex justify-between items-center text-xs mb-3">
+                <div class="flex items-center gap-3">
+                  <span class="text-lg w-8 h-8 rounded-lg bg-slate-50 dark:bg-zinc-800 flex items-center justify-center">
+                    {{ item.image }}
+                  </span>
+                  <div>
+                    <p class="font-semibold text-slate-800 dark:text-zinc-200 line-clamp-1">{{ item.name }}</p>
+                    <p class="text-slate-400 dark:text-zinc-500 text-[10px] font-medium">{{ item.quantity }} units sold</p>
+                  </div>
+                </div>
+                <span class="font-bold text-slate-900 dark:text-zinc-50">{{ formatPHP(item.revenue) }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -437,31 +621,63 @@ const generatePolygonPoints = (key: 'Sales' | 'Profit', width = 500, height = 20
             <AlertTriangle class="h-4 w-4 text-rose-500" /> Stock Warnings
           </h4>
 
-          <div class="max-h-56 overflow-y-auto space-y-3 pr-1" id="stock-alerts-list">
-            <div v-if="products.filter(p => p.currentStock <= p.minimumStock).length === 0" class="py-4 text-center text-zinc-400 text-xs">
-              No stock warnings. All items are fully supplied.
-            </div>
-            <div 
-              v-else 
-              v-for="p in products.filter(p => p.currentStock <= p.minimumStock).sort((a, b) => a.currentStock - b.currentStock)" 
-              :key="p.id" 
-              class="flex justify-between items-center text-xs border-b border-slate-50 dark:border-zinc-800/40 pb-2"
-            >
-              <div class="flex items-center gap-2">
-                <span class="text-base">{{ p.image }}</span>
-                <div>
-                  <p class="font-semibold text-slate-800 dark:text-zinc-200 line-clamp-1">{{ p.name }}</p>
-                  <p class="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">Min stock threshold: {{ p.minimumStock }}</p>
-                </div>
+          <div class="max-h-56 overflow-y-auto space-y-4 pr-1" id="stock-alerts-list">
+            <div>
+              <p class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-2">Profit sharing data</p>
+              <div v-if="products.filter(p => (p.inventoryType || 'owned') === 'owned' && p.currentStock <= p.minimumStock).length === 0" class="py-3 text-center text-zinc-400 text-xs">
+                No profit-sharing stock warnings.
               </div>
-              <span :class="[
-                'px-2 py-0.5 rounded-full text-[10px] font-bold',
-                p.currentStock === 0 
-                  ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400' 
-                  : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-500'
-              ]">
-                {{ p.currentStock === 0 ? 'OUT OF STOCK' : `${p.currentStock} left` }}
-              </span>
+              <div 
+                v-else 
+                v-for="p in products.filter(p => (p.inventoryType || 'owned') === 'owned' && p.currentStock <= p.minimumStock).sort((a, b) => a.currentStock - b.currentStock)" 
+                :key="`owned-warning-${p.id}`" 
+                class="flex justify-between items-center text-xs border-b border-slate-50 dark:border-zinc-800/40 pb-2 mb-2"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="text-base">{{ p.image }}</span>
+                  <div>
+                    <p class="font-semibold text-slate-800 dark:text-zinc-200 line-clamp-1">{{ p.name }}</p>
+                    <p class="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">Min stock threshold: {{ p.minimumStock }}</p>
+                  </div>
+                </div>
+                <span :class="[
+                  'px-2 py-0.5 rounded-full text-[10px] font-bold',
+                  p.currentStock === 0 
+                    ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400' 
+                    : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-500'
+                ]">
+                  {{ p.currentStock === 0 ? 'OUT OF STOCK' : `${p.currentStock} left` }}
+                </span>
+              </div>
+            </div>
+
+            <div class="border-t border-slate-100 dark:border-zinc-800 pt-4">
+              <p class="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-2">Consignment data</p>
+              <div v-if="products.filter(p => (p.inventoryType || 'owned') === 'consignment' && p.currentStock <= p.minimumStock).length === 0" class="py-3 text-center text-zinc-400 text-xs">
+                No consignment stock warnings.
+              </div>
+              <div 
+                v-else 
+                v-for="p in products.filter(p => (p.inventoryType || 'owned') === 'consignment' && p.currentStock <= p.minimumStock).sort((a, b) => a.currentStock - b.currentStock)" 
+                :key="`consignment-warning-${p.id}`" 
+                class="flex justify-between items-center text-xs border-b border-slate-50 dark:border-zinc-800/40 pb-2 mb-2"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="text-base">{{ p.image }}</span>
+                  <div>
+                    <p class="font-semibold text-slate-800 dark:text-zinc-200 line-clamp-1">{{ p.name }}</p>
+                    <p class="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">Min stock threshold: {{ p.minimumStock }}</p>
+                  </div>
+                </div>
+                <span :class="[
+                  'px-2 py-0.5 rounded-full text-[10px] font-bold',
+                  p.currentStock === 0 
+                    ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400' 
+                    : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-500'
+                ]">
+                  {{ p.currentStock === 0 ? 'OUT OF STOCK' : `${p.currentStock} left` }}
+                </span>
+              </div>
             </div>
           </div>
         </div>

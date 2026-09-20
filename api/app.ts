@@ -1,11 +1,13 @@
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
-import { readdir, readFile } from 'fs/promises';
+import { mkdir, readdir, readFile, rename, writeFile } from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import { Pool, PoolClient } from 'pg';
 import type {
   AuthUser,
+  ConsignmentWithdrawal,
   Expense,
   InvestorAccount,
   Partner,
@@ -21,6 +23,7 @@ interface PersistedAppState {
   expenses: Expense[];
   partners: Partner[];
   distributions: ProfitDistributionRecord[];
+  consignmentWithdrawals: ConsignmentWithdrawal[];
   stockMovements: StockMovement[];
   darkMode: boolean;
 }
@@ -73,6 +76,31 @@ const pool = new Pool({
 
 const app = express();
 const migrationsDir = path.join(process.cwd(), 'db', 'migrations');
+const publicCatalogPath = path.join(process.cwd(), 'public', 'catalog.json');
+const serverlessCatalogPath = path.join(os.tmpdir(), 'hai-inventory', 'catalog.json');
+
+export const resolveGuestCatalogPath = (): string => {
+  const isServerlessRuntime = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY);
+  return isServerlessRuntime ? serverlessCatalogPath : publicCatalogPath;
+};
+
+export const buildGuestCatalogProducts = (products: Product[]) => products
+  .filter((product) => !product.deletedAt)
+  .map(({ id, sku, name, category, brand, srpPrice, storePrice, sellingPrice, currentStock, image, imageUrl, apparelSizes, shoeGender, shoeSizes, sizeStocks }) => ({
+    id, sku, name, category, brand, srpPrice: srpPrice || storePrice || sellingPrice, storePrice: storePrice || sellingPrice, currentStock, image,
+    ...(imageUrl ? { imageUrl } : {}),
+    ...(apparelSizes?.length ? { apparelSizes } : {}),
+    ...(shoeGender ? { shoeGender } : {}),
+    ...(shoeSizes?.length ? { shoeSizes } : {}),
+    ...(sizeStocks && Object.keys(sizeStocks).length ? { sizeStocks } : {}),
+  }));
+
+const guestCatalogPath = resolveGuestCatalogPath();
+const guestCatalogDirectory = path.dirname(guestCatalogPath);
+
+const ensureGuestCatalogDirectory = async (): Promise<void> => {
+  await mkdir(guestCatalogDirectory, { recursive: true });
+};
 
 app.use(express.json({ limit: '10mb' }));
 app.use((req, _res, next) => {
@@ -178,6 +206,7 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
     partnersResult,
     distributionsResult,
     distributionItemsResult,
+    consignmentWithdrawalsResult,
     settingsResult,
   ] = await Promise.all([
     client.query('select * from products order by created_at desc'),
@@ -188,6 +217,7 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
     client.query('select * from partners order by name asc'),
     client.query('select * from profit_distributions order by month desc, created_at desc'),
     client.query('select * from profit_distribution_items order by id asc'),
+    client.query('select * from consignment_withdrawals order by month desc, created_at desc'),
     client.query('select key, value from app_settings'),
   ]);
 
@@ -203,6 +233,8 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
       quantity: toNumber(row.quantity),
       discount: toNumber(row.discount),
       totalPrice: toNumber(row.total_price),
+      selectedSize: row.selected_size || undefined,
+      inventoryType: row.inventory_type === 'consignment' ? 'consignment' : 'owned',
     });
     transactionItemsById.set(row.transaction_id, items);
   }
@@ -233,12 +265,27 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
       supplier: row.supplier,
       costPrice: toNumber(row.cost_price),
       sellingPrice: toNumber(row.selling_price),
+      srpPrice: toNumber(row.srp_price) || toNumber(row.store_price) || toNumber(row.selling_price),
+      storePrice: toNumber(row.store_price) || toNumber(row.selling_price),
       currentStock: toNumber(row.current_stock),
       minimumStock: toNumber(row.minimum_stock),
       image: row.image,
+      imageUrl: row.image_url || undefined,
+      apparelSizes: Array.isArray(row.apparel_sizes) ? row.apparel_sizes : [],
+      shoeGender: row.shoe_gender === 'Men' || row.shoe_gender === 'Women' ? row.shoe_gender : undefined,
+      shoeSizes: Array.isArray(row.shoe_sizes) ? row.shoe_sizes.map(toNumber) : [],
+      sizeStocks: row.size_stocks && typeof row.size_stocks === 'object' ? row.size_stocks : {},
+      inventoryType: row.inventory_type === 'consignment' ? 'consignment' : 'owned',
       status: row.status,
       createdAt: toIsoString(row.created_at),
       deletedAt: toOptionalIsoString(row.deleted_at),
+    })),
+    consignmentWithdrawals: consignmentWithdrawalsResult.rows.map((row) => ({
+      id: row.id,
+      month: row.month,
+      amount: toNumber(row.amount),
+      note: row.note || 'Consignment profit withdrawal',
+      createdAt: toIsoString(row.created_at),
     })),
     transactions: transactionsResult.rows.map((row) => ({
       id: row.id,
@@ -259,6 +306,7 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
       amount: toNumber(row.amount),
       description: row.description,
       date: toDateString(row.date),
+      inventoryType: row.inventory_type === 'consignment' ? 'consignment' : 'owned',
       receiptImage: row.receipt_image || undefined,
       createdAt: toIsoString(row.created_at),
       deletedAt: toOptionalIsoString(row.deleted_at),
@@ -300,6 +348,7 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
   try {
     await client.query('delete from profit_distribution_items');
     await client.query('delete from profit_distributions');
+    await client.query('delete from consignment_withdrawals');
     await client.query('delete from transaction_items');
     await client.query('delete from transactions');
     await client.query('delete from stock_movements');
@@ -311,8 +360,9 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
       await client.query(
         `insert into products (
           id, sku, barcode, name, description, category, brand, supplier, cost_price,
-          selling_price, current_stock, minimum_stock, image, status, created_at, deleted_at
-        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+          selling_price, srp_price, store_price, current_stock, minimum_stock, image, image_url, apparel_sizes,
+          shoe_gender, shoe_sizes, size_stocks, inventory_type, status, created_at, deleted_at
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
         [
           product.id,
           product.sku,
@@ -324,9 +374,17 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
           product.supplier || '',
           product.costPrice,
           product.sellingPrice,
+          product.srpPrice ?? product.storePrice ?? product.sellingPrice,
+          product.storePrice || product.sellingPrice,
           product.currentStock,
           product.minimumStock,
           product.image || '',
+          product.imageUrl || '',
+          product.apparelSizes || [],
+          product.shoeGender || null,
+          product.shoeSizes || [],
+          product.sizeStocks || {},
+          product.inventoryType || 'owned',
           product.status,
           product.createdAt,
           product.deletedAt || null,
@@ -376,8 +434,8 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
       for (const item of transaction.items || []) {
         await client.query(
           `insert into transaction_items (
-            transaction_id, product_id, name, sku, cost_price, selling_price, quantity, discount, total_price
-          ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            transaction_id, product_id, name, sku, cost_price, selling_price, quantity, discount, total_price, selected_size, inventory_type
+          ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
           [
             transaction.id,
             item.productId,
@@ -388,6 +446,8 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
             item.quantity,
             item.discount,
             item.totalPrice,
+            item.selectedSize || null,
+            item.inventoryType || 'owned',
           ]
         );
       }
@@ -396,14 +456,15 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
     for (const expense of state.expenses || []) {
       await client.query(
         `insert into expenses (
-          id, category, amount, description, date, receipt_image, created_at, deleted_at
-        ) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          id, category, amount, description, date, inventory_type, receipt_image, created_at, deleted_at
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           expense.id,
           expense.category,
           expense.amount,
           expense.description,
           expense.date,
+          expense.inventoryType || 'owned',
           expense.receiptImage || null,
           expense.createdAt,
           expense.deletedAt || null,
@@ -443,6 +504,21 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
           [distribution.id, item.partnerId, item.partnerName, item.percentage, item.amount]
         );
       }
+    }
+
+    for (const withdrawal of state.consignmentWithdrawals || []) {
+      await client.query(
+        `insert into consignment_withdrawals (
+          id, month, amount, note, created_at
+        ) values ($1, $2, $3, $4, $5)`,
+        [
+          withdrawal.id,
+          withdrawal.month,
+          withdrawal.amount,
+          withdrawal.note || 'Consignment profit withdrawal',
+          withdrawal.createdAt,
+        ]
+      );
     }
 
     await client.query(
@@ -647,6 +723,50 @@ app.post('/api/auth/logout', async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to logout' });
+  }
+});
+
+const serveGuestCatalog = async (_req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    const catalog = await readFile(guestCatalogPath, 'utf8');
+    res.type('application/json').send(catalog);
+    return;
+  } catch {
+    try {
+      const fallbackCatalog = await readFile(publicCatalogPath, 'utf8');
+      res.type('application/json').send(fallbackCatalog);
+      return;
+    } catch {
+      res.status(404).json({ error: 'Catalog file is not available.' });
+    }
+  }
+};
+
+app.get('/api/catalog.json', serveGuestCatalog);
+app.get('/catalog.json', serveGuestCatalog);
+
+app.post('/api/guest-catalog/generate', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await ensureSchema();
+    const user = await requireAdmin(req.headers.authorization);
+    if (!user) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const state = await loadRelationalState(client);
+    const products = buildGuestCatalogProducts(state.products);
+    const catalog = { generatedAt: new Date().toISOString(), products };
+    await ensureGuestCatalogDirectory();
+    const temporaryPath = path.join(guestCatalogDirectory, `catalog.json.${Date.now()}.tmp`);
+    await writeFile(temporaryPath, `${JSON.stringify(catalog, null, 2)}\n`, 'utf8');
+    await rename(temporaryPath, guestCatalogPath);
+    res.json({ ok: true, generatedAt: catalog.generatedAt, productCount: products.length });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to generate guest catalog' });
+  } finally {
+    client.release();
   }
 });
 

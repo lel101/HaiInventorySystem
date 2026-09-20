@@ -29,7 +29,8 @@ import {
   CartItem, 
   PaymentMethod,
   AuthUser,
-  InvestorAccount
+  InvestorAccount,
+  ConsignmentWithdrawal
 } from './types';
 import { 
   INITIAL_PRODUCTS, 
@@ -49,6 +50,7 @@ import Expenses from './components/Expenses.vue';
 import ProfitDistribution from './components/ProfitDistribution.vue';
 import Reports from './components/Reports.vue';
 import InvestorView from './components/InvestorView.vue';
+import GuestCatalog from './components/GuestCatalog.vue';
 
 // ----------------------------------------------------
 // STATE INITIALIZATION
@@ -58,13 +60,35 @@ const transactions = ref<Transaction[]>([]);
 const expenses = ref<Expense[]>([]);
 const partners = ref<Partner[]>([]);
 const distributions = ref<ProfitDistributionRecord[]>([]);
+const consignmentWithdrawals = ref<ConsignmentWithdrawal[]>([]);
 const stockMovements = ref<StockMovement[]>([]);
 const investorAccounts = ref<InvestorAccount[]>([]);
 const activeProducts = computed(() => products.value.filter((product) => !product.deletedAt));
 const activeExpenses = computed(() => expenses.value.filter((expense) => !expense.deletedAt));
 const activePartners = computed(() => partners.value.filter((partner) => !partner.deletedAt));
+const scopedTransactions = (scope: 'owned' | 'consignment') => computed(() => transactions.value.map((transaction) => {
+  const items = transaction.items.filter((item) => (item.inventoryType || 'owned') === scope);
+  if (!items.length) return null;
+  const allItemTotal = transaction.items.reduce((sum, item) => sum + item.totalPrice, 0);
+  const scopedItemTotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+  const invoiceFactor = allItemTotal > 0 ? transaction.total / allItemTotal : 1;
+  const total = scopedItemTotal * invoiceFactor;
+  const cogs = items.reduce((sum, item) => sum + item.costPrice * item.quantity, 0);
+  return {
+    ...transaction,
+    items,
+    subtotal: scopedItemTotal,
+    discountAmount: Math.max(0, scopedItemTotal - total),
+    total,
+    costOfGoodsSold: cogs,
+    profit: total - cogs,
+  };
+}).filter((transaction): transaction is Transaction => !!transaction));
+const ownedTransactions = scopedTransactions('owned');
+const consignmentTransactions = scopedTransactions('consignment');
 
 const activeView = ref<string>('dashboard');
+const isGuestPage = window.location.pathname.replace(/\/+$/, '') === '/guest';
 const darkMode = ref<boolean>(false);
 const toasts = ref<ToastMessage[]>([]);
 const currentTime = ref<string>('');
@@ -93,6 +117,7 @@ const getPersistedState = (): PersistedAppState => ({
   expenses: expenses.value,
   partners: partners.value,
   distributions: distributions.value,
+  consignmentWithdrawals: consignmentWithdrawals.value,
   stockMovements: stockMovements.value,
   darkMode: darkMode.value,
 });
@@ -115,6 +140,7 @@ const applyRemoteState = (state: Partial<PersistedAppState>) => {
   expenses.value = Array.isArray(state.expenses) ? state.expenses : INITIAL_EXPENSES;
   partners.value = Array.isArray(state.partners) ? state.partners : INITIAL_PARTNERS;
   distributions.value = Array.isArray(state.distributions) ? state.distributions : INITIAL_DISTRIBUTIONS;
+  consignmentWithdrawals.value = Array.isArray(state.consignmentWithdrawals) ? state.consignmentWithdrawals : [];
   stockMovements.value = Array.isArray(state.stockMovements) ? state.stockMovements : INITIAL_STOCK_MOVEMENTS;
   darkMode.value = !!state.darkMode;
 };
@@ -211,6 +237,18 @@ const loadLocalState = () => {
     distributions.value = INITIAL_DISTRIBUTIONS;
   }
 
+  // Consignment withdrawals
+  const savedWithdrawals = localStorage.getItem('biz_consignment_withdrawals');
+  if (savedWithdrawals) {
+    try {
+      consignmentWithdrawals.value = JSON.parse(savedWithdrawals);
+    } catch (e) {
+      consignmentWithdrawals.value = [];
+    }
+  } else {
+    consignmentWithdrawals.value = [];
+  }
+
   // Stock movements
   const savedMvs = localStorage.getItem('biz_stock_movements');
   if (savedMvs && localStorage.getItem('biz_products')) {
@@ -264,6 +302,11 @@ watch(partners, (newVal) => {
 
 watch(distributions, (newVal) => {
   localStorage.setItem('biz_distributions', JSON.stringify(newVal));
+  queueServerSave();
+}, { deep: true });
+
+watch(consignmentWithdrawals, (newVal) => {
+  localStorage.setItem('biz_consignment_withdrawals', JSON.stringify(newVal));
   queueServerSave();
 }, { deep: true });
 
@@ -392,10 +435,12 @@ const restoreAuthSession = async () => {
 };
 
 onMounted(async () => {
-  try {
-    await restoreAuthSession();
-  } finally {
-    authReady.value = true;
+  if (!isGuestPage) {
+    try {
+      await restoreAuthSession();
+    } finally {
+      authReady.value = true;
+    }
   }
 
   updateTime();
@@ -701,7 +746,9 @@ const handleCheckout = (
       sellingPrice: item.product.sellingPrice,
       quantity: item.quantity,
       discount: item.discount,
-      totalPrice: originalPrice - discountAmount
+      totalPrice: originalPrice - discountAmount,
+      selectedSize: item.selectedSize,
+      inventoryType: item.product.inventoryType || 'owned',
     };
   });
 
@@ -727,9 +774,16 @@ const handleCheckout = (
 
   // Deduct stock counts in products catalog & Log stock movements
   products.value = products.value.map(p => {
-    const cartMatch = cartItems.find(item => item.product.id === p.id);
-    if (cartMatch) {
-      const newQty = Math.max(0, p.currentStock - cartMatch.quantity);
+    const cartMatches = cartItems.filter(item => item.product.id === p.id);
+    if (cartMatches.length) {
+      const soldQuantity = cartMatches.reduce((total, item) => total + item.quantity, 0);
+      const newQty = Math.max(0, p.currentStock - soldQuantity);
+      const nextSizeStocks = { ...(p.sizeStocks || {}) };
+      for (const item of cartMatches) {
+        if (item.selectedSize) {
+          nextSizeStocks[item.selectedSize] = Math.max(0, (nextSizeStocks[item.selectedSize] || 0) - item.quantity);
+        }
+      }
       const newStatus = newQty === 0 
         ? 'Out of Stock' 
         : newQty <= p.minimumStock 
@@ -742,10 +796,10 @@ const handleCheckout = (
         productId: p.id,
         productName: p.name,
         type: 'Out',
-        quantity: -cartMatch.quantity,
+        quantity: -soldQuantity,
         previousStock: p.currentStock,
         newStock: newQty,
-        reason: `Sold via POS ${invoiceNo}`,
+        reason: `Sold via POS ${invoiceNo}${cartMatches.some((item) => item.selectedSize) ? ` (${cartMatches.map((item) => `${item.selectedSize} ×${item.quantity}`).join(', ')})` : ''}`,
         createdAt: new Date().toISOString()
       };
 
@@ -754,6 +808,7 @@ const handleCheckout = (
       return {
         ...p,
         currentStock: newQty,
+        sizeStocks: nextSizeStocks,
         status: newStatus
       };
     }
@@ -858,10 +913,44 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
   };
   distributions.value = [record, ...distributions.value];
 };
+
+const handleAddConsignmentWithdrawal = (payload: { month: string; amount: number; note: string }) => {
+  const record: ConsignmentWithdrawal = {
+    id: `cw-${Math.random().toString(36).substring(2, 9)}`,
+    month: payload.month,
+    amount: payload.amount,
+    note: payload.note || 'Consignment profit withdrawal',
+    createdAt: new Date().toISOString(),
+  };
+
+  consignmentWithdrawals.value = [record, ...consignmentWithdrawals.value];
+  addToast('Consignment Withdrawal', `${formatPHP(payload.amount)} recorded for ${payload.month}.`, 'success');
+};
+
+const handleGenerateGuestCatalog = async () => {
+  try {
+    // Save pending catalog edits before creating the public snapshot.
+    await saveServerState(getPersistedState());
+    const response = await fetch('/api/guest-catalog/generate', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    const isJsonResponse = response.headers.get('content-type')?.includes('application/json');
+    const payload = isJsonResponse
+      ? await response.json()
+      : { error: 'Guest catalog API is unavailable. Restart npm run dev:api, then try again.' };
+    if (!response.ok) throw new Error(payload.error || 'Unable to generate the guest catalog.');
+    addToast('Guest Catalog Updated', `${payload.productCount} available item${payload.productCount === 1 ? '' : 's'} published to /guest.`, 'success');
+  } catch (error) {
+    addToast('Guest Catalog Failed', error instanceof Error ? error.message : 'Unable to generate the guest catalog.', 'error');
+  }
+};
 </script>
 
 <template>
-  <div v-if="!authReady" class="min-h-screen bg-[#111113] text-zinc-100 flex items-center justify-center p-6 font-sans transition-colors duration-150">
+  <GuestCatalog v-if="isGuestPage" />
+
+  <div v-else-if="!authReady" class="min-h-screen bg-[#111113] text-zinc-100 flex items-center justify-center p-6 font-sans transition-colors duration-150">
     <div class="flex flex-col items-center gap-3">
       <div class="hai-logo-mark" aria-hidden="true">
         <span class="hai-kana">はい</span>
@@ -982,7 +1071,7 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
         <div class="max-w-7xl mx-auto">
           <InvestorView
             :products="activeProducts"
-            :transactions="transactions"
+            :transactions="ownedTransactions"
             :expenses="activeExpenses"
             :partners="activePartners"
             :distributions="distributions"
@@ -1131,7 +1220,9 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
           <Dashboard 
             v-if="activeView === 'dashboard'"
             :products="activeProducts"
-            :transactions="transactions"
+            :transactions="ownedTransactions"
+            :consignment-transactions="consignmentTransactions"
+            :consignment-withdrawals="consignmentWithdrawals"
             :expenses="activeExpenses"
             @navigate="activeView = $event"
           />
@@ -1145,6 +1236,7 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
             @delete-product="handleDeleteProduct"
             @adjust-stock="handleAdjustStock"
             @import-products="handleImportProducts"
+            @generate-guest-catalog="handleGenerateGuestCatalog"
           />
 
           <POS
@@ -1166,21 +1258,26 @@ const handlePostDistribution = (newRecord: Omit<ProfitDistributionRecord, 'id' |
             v-else-if="activeView === 'partners'"
             :partners="activePartners"
             :distributions="distributions"
-            :transactions="transactions"
+            :transactions="ownedTransactions"
+            :consignment-transactions="consignmentTransactions"
             :expenses="activeExpenses"
             :investor-accounts="investorAccounts"
+            :consignment-withdrawals="consignmentWithdrawals"
             @add-partner="handleAddPartner"
             @update-partner-shares="handleUpdatePartnerShares"
             @delete-partner="handleDeletePartner"
             @save-investor-account="handleSaveInvestorAccount"
             @post-distribution="handlePostDistribution"
+            @add-consignment-withdrawal="handleAddConsignmentWithdrawal"
             @add-toast="addToast"
           />
 
           <Reports
             v-else-if="activeView === 'reports'"
             :products="activeProducts"
-            :transactions="transactions"
+            :transactions="ownedTransactions"
+            :consignment-transactions="consignmentTransactions"
+            :consignment-withdrawals="consignmentWithdrawals"
             :expenses="activeExpenses"
             :partners="activePartners"
             :distributions="distributions"

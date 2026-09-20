@@ -34,6 +34,7 @@ const CATEGORIES = ['Rent', 'Salary', 'Electricity', 'Internet', 'Marketing', 'T
 // Component State
 const searchQuery = ref('');
 const categoryFilter = ref('All');
+const ownershipFilter = ref<'all' | 'owned' | 'consignment'>('all');
 const isAddModalOpen = ref(false);
 
 // Form States
@@ -41,6 +42,7 @@ const category = ref<typeof CATEGORIES[number]>('Miscellaneous');
 const amount = ref('');
 const description = ref('');
 const date = ref(new Date().toISOString().substring(0, 10));
+const inventoryType = ref<'owned' | 'consignment' | ''>('');
 
 // Category helpers
 const getCategoryIcon = (cat: string) => {
@@ -78,12 +80,17 @@ const handleSubmit = () => {
     emit('add-toast', 'Description Required', 'Please detail the description of this expense.', 'error');
     return;
   }
+  if (!inventoryType.value) {
+    emit('add-toast', 'Ownership Required', 'Please select the ownership type for this expense.', 'error');
+    return;
+  }
 
   emit('add-expense', {
     category: category.value,
     amount: parsedAmount,
     description: description.value.trim(),
-    date: date.value
+    date: date.value,
+    inventoryType: inventoryType.value,
   });
 
   // Reset Form
@@ -92,6 +99,7 @@ const handleSubmit = () => {
   amount.value = '';
   description.value = '';
   date.value = new Date().toISOString().substring(0, 10);
+  inventoryType.value = '';
 };
 
 // Filters and computations
@@ -100,10 +108,11 @@ const filteredExpenses = computed(() => {
     const matchesSearch = 
       exp.description.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
       exp.category.toLowerCase().includes(searchQuery.value.toLowerCase());
-    
-    const matchesCategory = categoryFilter.value === 'All' || exp.category === categoryFilter.value;
 
-    return matchesSearch && matchesCategory;
+    const matchesCategory = categoryFilter.value === 'All' || exp.category === categoryFilter.value;
+    const matchesOwnership = ownershipFilter.value === 'all' || (exp.inventoryType || 'owned') === ownershipFilter.value;
+
+    return matchesSearch && matchesCategory && matchesOwnership;
   });
 });
 
@@ -160,7 +169,15 @@ const handleDelete = (id: string) => {
           />
         </div>
 
-        <div class="w-full sm:w-auto flex justify-end">
+        <div class="w-full sm:w-auto flex justify-end gap-2">
+          <select
+            v-model="ownershipFilter"
+            class="text-xs bg-zinc-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700/80 rounded-lg py-2 px-3 text-zinc-700 dark:text-zinc-300 focus:outline-none focus:border-indigo-500 font-semibold"
+          >
+            <option value="all">All Ownership</option>
+            <option value="owned">Profit Sharing</option>
+            <option value="consignment">Consignment</option>
+          </select>
           <select
             v-model="categoryFilter"
             class="text-xs bg-zinc-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700/80 rounded-lg py-2 px-3 text-zinc-700 dark:text-zinc-300 focus:outline-none focus:border-indigo-500 font-semibold"
@@ -203,10 +220,15 @@ const handleDelete = (id: string) => {
 
               <!-- Category -->
               <td class="p-4">
-                <span :class="['px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1.5 w-fit', getCategoryBadgeColor(exp.category)]">
-                  <component :is="getCategoryIcon(exp.category)" class="h-3.5 w-3.5" />
-                  {{ exp.category }}
-                </span>
+                <div class="flex flex-col gap-1.5">
+                  <span :class="['px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1.5 w-fit', getCategoryBadgeColor(exp.category)]">
+                    <component :is="getCategoryIcon(exp.category)" class="h-3.5 w-3.5" />
+                    {{ exp.category }}
+                  </span>
+                  <span class="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                    {{ (exp.inventoryType || 'owned') === 'consignment' ? 'Consignment' : 'Profit Sharing' }}
+                  </span>
+                </div>
               </td>
 
               <!-- Description -->
@@ -288,6 +310,19 @@ const handleDelete = (id: string) => {
               v-model="date"
               class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold"
             />
+          </div>
+
+          <!-- Ownership -->
+          <div>
+            <label class="block font-bold text-slate-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Ownership *</label>
+            <select
+              v-model="inventoryType"
+              class="w-full p-2 bg-zinc-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-lg text-zinc-800 dark:text-zinc-200 font-bold"
+            >
+              <option value="">Select ownership</option>
+              <option value="owned">Profit Sharing</option>
+              <option value="consignment">Consignment</option>
+            </select>
           </div>
 
           <!-- Description -->

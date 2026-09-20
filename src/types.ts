@@ -9,9 +9,23 @@ export interface Product {
   supplier: string;
   costPrice: number;
   sellingPrice: number;
+  /** Suggested retail price used for promotional comparisons in the guest catalog. */
+  srpPrice?: number;
+  /** Public retail price displayed in the guest catalog. */
+  storePrice: number;
   currentStock: number;
   minimumStock: number;
   image: string;
+  /** Public URL from Supabase Storage (or another image host). */
+  imageUrl?: string;
+  /** Apparel sizes offered by this SKU. Stock remains tracked at the SKU level. */
+  apparelSizes?: string[];
+  /** European shoe sizing, optionally marked for men's or women's fit. */
+  shoeGender?: 'Men' | 'Women';
+  shoeSizes?: number[];
+  /** Remaining units keyed by an offered apparel or EU shoe size. */
+  sizeStocks?: Record<string, number>;
+  inventoryType?: 'owned' | 'consignment';
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
   createdAt: string;
   deletedAt?: string;
@@ -35,6 +49,7 @@ export interface CartItem {
   product: Product;
   quantity: number;
   discount: number; // percentage or fixed amount, let's treat as percentage
+  selectedSize?: string;
 }
 
 export interface Transaction {
@@ -49,6 +64,8 @@ export interface Transaction {
     quantity: number;
     discount: number; // percentage
     totalPrice: number;
+    selectedSize?: string;
+    inventoryType?: 'owned' | 'consignment';
   }[];
   subtotal: number;
   discountAmount: number;
@@ -66,6 +83,7 @@ export interface Expense {
   amount: number;
   description: string;
   date: string;
+  inventoryType?: 'owned' | 'consignment';
   receiptImage?: string; // Base64 or mock file path
   createdAt: string;
   deletedAt?: string;
@@ -92,6 +110,14 @@ export interface ProfitDistributionRecord {
     percentage: number;
     amount: number;
   }[];
+  createdAt: string;
+}
+
+export interface ConsignmentWithdrawal {
+  id: string;
+  month: string; // YYYY-MM
+  amount: number;
+  note: string;
   createdAt: string;
 }
 

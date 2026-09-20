@@ -10,6 +10,158 @@ export const formatPHP = (amount: number): string => {
   }).format(amount);
 };
 
+export const normalizeInventoryPricing = (input: {
+  inventoryType?: 'owned' | 'consignment';
+  costPrice?: number;
+  sellingPrice?: number;
+  storePrice?: number;
+  srpPrice?: number;
+}) => {
+  const normalizedSellingPrice = Number(input.sellingPrice) || 0;
+  const normalizedStorePrice = input.storePrice != null ? Number(input.storePrice) || 0 : normalizedSellingPrice;
+  const normalizedSrpPrice = input.srpPrice != null ? Number(input.srpPrice) || 0 : 0;
+
+  return {
+    costPrice: input.inventoryType === 'consignment' ? 0 : (input.costPrice != null ? Number(input.costPrice) || 0 : 0),
+    sellingPrice: normalizedSellingPrice,
+    storePrice: normalizedStorePrice,
+    srpPrice: normalizedSrpPrice,
+  };
+};
+
+export const getInventoryDisplayPricing = (input: {
+  inventoryType?: 'owned' | 'consignment';
+  costPrice?: number;
+  sellingPrice?: number;
+  storePrice?: number;
+  srpPrice?: number;
+}) => {
+  const normalized = normalizeInventoryPricing(input);
+  const storeValue = input.storePrice != null ? Number(input.storePrice) || 0 : normalized.sellingPrice || 0;
+  const srpValue = input.srpPrice != null
+    ? Number(input.srpPrice) || 0
+    : (input.storePrice != null ? Number(input.storePrice) || 0 : normalized.sellingPrice || 0);
+
+  return {
+    sellingPrice: normalized.sellingPrice,
+    storeValue,
+    secondaryLabel: input.inventoryType === 'consignment' ? 'SRP Price' : 'Cost',
+    secondaryValue: input.inventoryType === 'consignment' ? srpValue : normalized.costPrice,
+  };
+};
+
+export const getGuestPriceDisplay = (input: {
+  srpPrice?: number;
+  storePrice?: number;
+  sellingPrice?: number;
+}) => {
+  const currentPrice = Number(input.storePrice) || Number(input.sellingPrice) || 0;
+  const originalPrice = Number(input.srpPrice) || currentPrice;
+  const hasDiscount = originalPrice > 0 && currentPrice > 0 && currentPrice < originalPrice;
+  const discountPercent = hasDiscount ? Math.round(((originalPrice - currentPrice) / originalPrice) * 100) : 0;
+
+  return {
+    currentPrice,
+    originalPrice,
+    hasDiscount,
+    discountPercent,
+  };
+};
+
+export const getConsignmentWithdrawalSummary = ({
+  netProfit,
+  withdrawals,
+  selectedMonth,
+}: {
+  netProfit: number;
+  withdrawals: Array<{ id?: string; month: string; amount: number; note?: string; createdAt?: string }>;
+  selectedMonth: string;
+}) => {
+  const monthWithdrawals = withdrawals.filter((item) => item.month === selectedMonth);
+  const withdrawnAmount = monthWithdrawals.reduce((sum, item) => sum + item.amount, 0);
+  const remainingProfit = Math.max(0, netProfit - withdrawnAmount);
+
+  return {
+    monthWithdrawals,
+    withdrawnAmount,
+    remainingProfit,
+    isLocked: netProfit <= 0 || monthWithdrawals.length > 0,
+  };
+};
+
+export const buildInventoryAssetRows = (products: Product[]) => {
+  return products.map((product) => ({
+    id: product.id,
+    sku: product.sku,
+    name: product.name,
+    supplier: product.supplier,
+    costPrice: product.costPrice,
+    sellingPrice: product.sellingPrice,
+    stockCount: product.currentStock,
+    assetValuation: product.currentStock * product.costPrice,
+  }));
+};
+
+export const filterInventoryByOwnership = (
+  products: Product[],
+  scope: 'profit' | 'consignment'
+) => {
+  return products.filter((product) => {
+    const inventoryType = product.inventoryType || 'owned';
+    return scope === 'consignment' ? inventoryType === 'consignment' : inventoryType !== 'consignment';
+  });
+};
+
+export const buildPartnerPayoutRows = (records: ProfitDistributionRecord[]) => {
+  return records.flatMap((record) =>
+    record.distributions.map((item) => ({
+      month: record.month,
+      partnerName: item.partnerName,
+      percentage: item.percentage,
+      amount: item.amount,
+    }))
+  );
+};
+
+export const buildConsignmentWithdrawalRows = (
+  withdrawals: Array<{ id?: string; month: string; amount: number; note?: string; createdAt?: string }>
+) => {
+  return [...withdrawals]
+    .sort((a, b) => b.month.localeCompare(a.month))
+    .map((item) => ({
+      month: item.month,
+      partnerName: 'Consignment Withdrawal',
+      percentage: 100,
+      amount: item.amount,
+      note: item.note || 'Consignment profit withdrawal',
+    }));
+};
+
+export const filterPayoutRowsByOwnership = (
+  records: ProfitDistributionRecord[],
+  scope: 'profit' | 'consignment'
+) => {
+  if (scope === 'consignment') {
+    return [];
+  }
+
+  return buildPartnerPayoutRows(records);
+};
+
+export const filterExpensesByOwnership = (
+  expenses: Expense[],
+  scope: 'profit' | 'consignment'
+) => {
+  return expenses.filter((expense) => {
+    const inventoryType = expense.inventoryType || 'owned';
+    return scope === 'consignment' ? inventoryType === 'consignment' : inventoryType !== 'consignment';
+  });
+};
+
+export const calculateNetProfit = (revenue: number, cogs: number, expenses: number = 0) => {
+  return revenue - cogs - expenses;
+};
+
 // Generates dynamic dates relative to today
 const getPastDate = (daysAgo: number, hourOffset = 0): string => {
   const d = new Date();

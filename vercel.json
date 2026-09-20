@@ -8,6 +8,10 @@
   },
   "rewrites": [
     {
+      "source": "/catalog.json",
+      "destination": "/api/catalog.json"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/[...path]"
     },

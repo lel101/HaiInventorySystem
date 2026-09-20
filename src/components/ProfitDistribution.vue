@@ -16,16 +16,18 @@ import {
   Eye,
   EyeOff
 } from '@lucide/vue';
-import { Partner, ProfitDistributionRecord, Transaction, Expense, InvestorAccount } from '../types';
-import { formatPHP } from '../utils';
+import { Partner, ProfitDistributionRecord, Transaction, Expense, InvestorAccount, ConsignmentWithdrawal } from '../types';
+import { filterExpensesByOwnership, formatPHP, getConsignmentWithdrawalSummary } from '../utils';
 
 // Props & Emits
 const props = defineProps<{
   partners: Partner[];
   distributions: ProfitDistributionRecord[];
   transactions: Transaction[];
+  consignmentTransactions?: Transaction[];
   expenses: Expense[];
   investorAccounts: InvestorAccount[];
+  consignmentWithdrawals: ConsignmentWithdrawal[];
 }>();
 
 const emit = defineEmits<{
@@ -34,6 +36,7 @@ const emit = defineEmits<{
   (e: 'delete-partner', id: string): void;
   (e: 'save-investor-account', payload: { partnerId: string; username: string; password: string }): void;
   (e: 'post-distribution', record: Omit<ProfitDistributionRecord, 'id' | 'createdAt'>): void;
+  (e: 'add-consignment-withdrawal', payload: { month: string; amount: number; note: string }): void;
   (e: 'add-toast', title: string, message: string, type: 'success' | 'error'): void;
 }>();
 
@@ -45,6 +48,12 @@ const investorPassword = ref('');
 const credentialDrafts = ref<Record<string, { username: string; password: string }>>({});
 const showNewInvestorPassword = ref(false);
 const visiblePasswords = ref<Record<string, boolean>>({});
+const pendingConfirmation = ref<{
+  title: string;
+  message: string;
+  confirmText: string;
+  onConfirm: () => void;
+} | null>(null);
 
 watch(
   () => props.investorAccounts,
@@ -88,7 +97,7 @@ const monthFinancials = computed(() => {
     }
   });
 
-  props.expenses.forEach(exp => {
+  filterExpensesByOwnership(props.expenses, 'profit').forEach(exp => {
     if (exp.date.substring(0, 7) === selectedMonth.value) {
       monthExpenses += exp.amount;
     }
@@ -101,6 +110,27 @@ const monthFinancials = computed(() => {
     cogs,
     expenses: monthExpenses,
     netProfit
+  };
+});
+
+const consignmentMonthFinancials = computed(() => {
+  let revenue = 0;
+  let cogs = 0;
+
+  const consignmentTx = (props.consignmentTransactions || []).filter((tx) => tx.createdAt.substring(0, 7) === selectedMonth.value);
+
+  consignmentTx.forEach((tx) => {
+    const consignmentItems = tx.items.filter((item) => (item.inventoryType || 'owned') === 'consignment');
+    if (!consignmentItems.length) return;
+
+    revenue += consignmentItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    cogs += consignmentItems.reduce((sum, item) => sum + item.costPrice * item.quantity, 0);
+  });
+
+  return {
+    revenue,
+    cogs,
+    netProfit: Math.max(0, revenue - cogs),
   };
 });
 
@@ -179,24 +209,74 @@ const handlePostDistribution = () => {
     return;
   }
 
-  const partnerDistributions = props.partners.map(p => ({
-    partnerId: p.id,
-    partnerName: p.name,
-    percentage: p.sharePercentage,
-    amount: monthFinancials.value.netProfit * (p.sharePercentage / 100)
-  }));
+  pendingConfirmation.value = {
+    title: 'Distribute Profit',
+    message: `Distribute ${formatPHP(monthFinancials.value.netProfit)} to ${props.partners.length} partners for ${selectedMonth.value}?`,
+    confirmText: 'Distribute Profit',
+    onConfirm: () => {
+      const partnerDistributions = props.partners.map(p => ({
+        partnerId: p.id,
+        partnerName: p.name,
+        percentage: p.sharePercentage,
+        amount: monthFinancials.value.netProfit * (p.sharePercentage / 100)
+      }));
 
-  emit('post-distribution', {
-    month: selectedMonth.value,
-    revenue: monthFinancials.value.revenue,
-    cogs: monthFinancials.value.cogs,
-    expenses: monthFinancials.value.expenses,
-    netProfit: monthFinancials.value.netProfit,
-    distributedAmount: monthFinancials.value.netProfit,
-    distributions: partnerDistributions
-  });
+      emit('post-distribution', {
+        month: selectedMonth.value,
+        revenue: monthFinancials.value.revenue,
+        cogs: monthFinancials.value.cogs,
+        expenses: monthFinancials.value.expenses,
+        netProfit: monthFinancials.value.netProfit,
+        distributedAmount: monthFinancials.value.netProfit,
+        distributions: partnerDistributions
+      });
 
-  emit('add-toast', 'Profit Distributed', `Successfully distributed ${formatPHP(monthFinancials.value.netProfit)} among ${props.partners.length} partners.`, 'success');
+      emit('add-toast', 'Profit Distributed', `Successfully distributed ${formatPHP(monthFinancials.value.netProfit)} among ${props.partners.length} partners.`, 'success');
+      pendingConfirmation.value = null;
+    }
+  };
+};
+
+const consignmentWithdrawalSummary = computed(() =>
+  getConsignmentWithdrawalSummary({
+    netProfit: consignmentMonthFinancials.value.netProfit,
+    withdrawals: props.consignmentWithdrawals,
+    selectedMonth: selectedMonth.value,
+  })
+);
+
+const consignmentDisplayAmount = computed(() => {
+  if (consignmentWithdrawalSummary.value.withdrawnAmount > 0) {
+    return consignmentMonthFinancials.value.netProfit;
+  }
+
+  return consignmentWithdrawalSummary.value.remainingProfit;
+});
+
+const handleConsignmentWithdrawal = () => {
+  if (consignmentMonthFinancials.value.netProfit <= 0) {
+    emit('add-toast', 'No Consignment Profit', `There is no available consignment profit for ${selectedMonth.value}.`, 'error');
+    return;
+  }
+
+  if (consignmentWithdrawalSummary.value.isLocked) {
+    emit('add-toast', 'Already Withdrawn', `A withdrawal for ${selectedMonth.value} has already been recorded.`, 'error');
+    return;
+  }
+
+  pendingConfirmation.value = {
+    title: 'Withdraw Consignment Profit',
+    message: `Record a withdrawal of ${formatPHP(consignmentMonthFinancials.value.netProfit)} for ${selectedMonth.value}?`,
+    confirmText: 'Withdraw Profit',
+    onConfirm: () => {
+      emit('add-consignment-withdrawal', {
+        month: selectedMonth.value,
+        amount: consignmentMonthFinancials.value.netProfit,
+        note: `Consignment withdrawal for ${selectedMonth.value}`,
+      });
+      pendingConfirmation.value = null;
+    }
+  };
 };
 
 const handleDelete = (id: string, name: string) => {
@@ -542,7 +622,82 @@ const togglePasswordVisibility = (partnerId: string) => {
             </div>
           </div>
         </div>
+
+        <div class="rounded-xl border border-amber-200 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-950/20 p-4 mt-4">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <p class="text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-300">Consignment Profit Withdrawal</p>
+              <p class="mt-1 text-xl font-black text-amber-700 dark:text-amber-300">{{ formatPHP(consignmentDisplayAmount) }}</p>
+            </div>
+
+            <div
+              v-if="consignmentWithdrawalSummary.withdrawnAmount > 0"
+              class="bg-amber-100/70 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 border border-amber-500/20"
+            >
+              <Check class="h-4 w-4" /> Withdrawn
+            </div>
+
+            <button
+              v-else
+              @click="handleConsignmentWithdrawal"
+              class="px-3.5 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-black uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="consignmentMonthFinancials.netProfit <= 0"
+            >
+              Withdraw Profit
+            </button>
+          </div>
+          <p v-if="consignmentWithdrawalSummary.withdrawnAmount > 0" class="mt-2 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+            Withdrawal already recorded for this month.
+          </p>
+        </div>
+
+        <div class="space-y-3 mt-4" id="consignment-withdrawal-history">
+          <h5 class="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+            <Layers class="h-3.5 w-3.5" /> Historical Distributions
+          </h5>
+
+          <div class="border border-slate-200 dark:border-zinc-800 rounded-xl overflow-hidden divide-y divide-slate-100 dark:divide-zinc-800 text-xs shadow-sm">
+            <div v-if="props.consignmentWithdrawals.length === 0" class="p-4 text-center text-zinc-400">
+              No consignment withdrawals logged yet.
+            </div>
+            <div v-else v-for="withdrawal in [...props.consignmentWithdrawals].sort((a, b) => b.month.localeCompare(a.month))" :key="withdrawal.id" class="p-3.5 flex justify-between items-center bg-white dark:bg-zinc-900 hover:bg-zinc-50/10">
+              <div>
+                <p class="font-bold text-slate-800 dark:text-zinc-200">{{ withdrawal.month }} Cycle</p>
+                <p class="text-[10px] text-zinc-400 mt-0.5 font-semibold uppercase tracking-wide">{{ withdrawal.note }}</p>
+              </div>
+              <span class="font-black text-amber-600 dark:text-amber-400 font-sans text-sm">{{ formatPHP(withdrawal.amount) }}</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
+
+  <Teleport to="body">
+    <div v-if="pendingConfirmation" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+      <div class="w-full max-w-md rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 shadow-2xl">
+        <div class="mb-4">
+          <p class="text-[10px] uppercase tracking-widest font-black text-slate-500 dark:text-zinc-400">Confirmation Required</p>
+          <h3 class="mt-2 text-lg font-black text-slate-900 dark:text-zinc-50">{{ pendingConfirmation.title }}</h3>
+        </div>
+        <p class="text-sm text-slate-600 dark:text-zinc-300 leading-relaxed">{{ pendingConfirmation.message }}</p>
+        <div class="mt-5 flex gap-2 sm:justify-end">
+          <button
+            type="button"
+            @click="pendingConfirmation = null"
+            class="flex-1 sm:flex-none px-4 py-2.5 rounded-lg border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 font-bold"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            @click="pendingConfirmation.onConfirm()"
+            class="flex-1 sm:flex-none px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700"
+          >
+            {{ pendingConfirmation.confirmText }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
