@@ -148,6 +148,20 @@ export const filterPayoutRowsByOwnership = (
   return buildPartnerPayoutRows(records);
 };
 
+export const filterExpensesByOwnership = (
+  expenses: Expense[],
+  scope: 'profit' | 'consignment'
+) => {
+  return expenses.filter((expense) => {
+    const inventoryType = expense.inventoryType || 'owned';
+    return scope === 'consignment' ? inventoryType === 'consignment' : inventoryType !== 'consignment';
+  });
+};
+
+export const calculateNetProfit = (revenue: number, cogs: number, expenses: number = 0) => {
+  return revenue - cogs - expenses;
+};
+
 // Generates dynamic dates relative to today
 const getPastDate = (daysAgo: number, hourOffset = 0): string => {
   const d = new Date();

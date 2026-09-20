@@ -306,6 +306,7 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
       amount: toNumber(row.amount),
       description: row.description,
       date: toDateString(row.date),
+      inventoryType: row.inventory_type === 'consignment' ? 'consignment' : 'owned',
       receiptImage: row.receipt_image || undefined,
       createdAt: toIsoString(row.created_at),
       deletedAt: toOptionalIsoString(row.deleted_at),
@@ -455,14 +456,15 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
     for (const expense of state.expenses || []) {
       await client.query(
         `insert into expenses (
-          id, category, amount, description, date, receipt_image, created_at, deleted_at
-        ) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          id, category, amount, description, date, inventory_type, receipt_image, created_at, deleted_at
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           expense.id,
           expense.category,
           expense.amount,
           expense.description,
           expense.date,
+          expense.inventoryType || 'owned',
           expense.receiptImage || null,
           expense.createdAt,
           expense.deletedAt || null,

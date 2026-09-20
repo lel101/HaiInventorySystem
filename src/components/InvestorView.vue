@@ -11,7 +11,7 @@ import {
   TrendingUp
 } from '@lucide/vue';
 import { Expense, Partner, Product, ProfitDistributionRecord, Transaction } from '../types';
-import { formatPHP } from '../utils';
+import { calculateNetProfit, filterExpensesByOwnership, formatPHP } from '../utils';
 
 const props = defineProps<{
   products: Product[];
@@ -36,7 +36,7 @@ const monthFinancials = computed(() => {
     }
   });
 
-  props.expenses.forEach((expense) => {
+  filterExpensesByOwnership(props.expenses, 'profit').forEach((expense) => {
     if (expense.date.substring(0, 7) === currentMonth.value) {
       expenses += expense.amount;
     }
@@ -46,14 +46,14 @@ const monthFinancials = computed(() => {
     revenue,
     cogs,
     expenses,
-    netProfit: Math.max(0, revenue - cogs - expenses),
+    netProfit: calculateNetProfit(revenue, cogs, expenses),
   };
 });
 
 const lifetime = computed(() => {
   const revenue = props.transactions.reduce((sum, tx) => sum + tx.total, 0);
   const cogs = props.transactions.reduce((sum, tx) => sum + tx.costOfGoodsSold, 0);
-  const expenses = props.expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const expenses = filterExpensesByOwnership(props.expenses, 'profit').reduce((sum, expense) => sum + expense.amount, 0);
   const distributed = props.distributions.reduce((sum, record) => {
     if (!props.partnerId) return sum + record.distributedAmount;
     const item = record.distributions.find((distribution) => distribution.partnerId === props.partnerId);
@@ -67,7 +67,7 @@ const lifetime = computed(() => {
     expenses,
     distributed,
     inventoryValue,
-    netProfit: Math.max(0, revenue - cogs - expenses),
+    netProfit: calculateNetProfit(revenue, cogs, expenses),
   };
 });
 
@@ -98,14 +98,14 @@ const monthlyLedger = computed(() => {
     ledger[month].cogs += tx.costOfGoodsSold;
   });
 
-  props.expenses.forEach((expense) => {
+  filterExpensesByOwnership(props.expenses, 'profit').forEach((expense) => {
     const month = expense.date.substring(0, 7);
     ledger[month] ||= { revenue: 0, cogs: 0, expenses: 0, netProfit: 0 };
     ledger[month].expenses += expense.amount;
   });
 
   Object.values(ledger).forEach((item) => {
-    item.netProfit = Math.max(0, item.revenue - item.cogs - item.expenses);
+    item.netProfit = calculateNetProfit(item.revenue, item.cogs, item.expenses);
   });
 
   return Object.entries(ledger)

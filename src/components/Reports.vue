@@ -6,7 +6,7 @@ import {
   FileSpreadsheet
 } from '@lucide/vue';
 import { Product, Transaction, Expense, Partner, ProfitDistributionRecord, ConsignmentWithdrawal } from '../types';
-import { formatPHP, exportToCSV, buildInventoryAssetRows, buildConsignmentWithdrawalRows, filterInventoryByOwnership, filterPayoutRowsByOwnership } from '../utils';
+import { formatPHP, exportToCSV, buildInventoryAssetRows, buildConsignmentWithdrawalRows, filterInventoryByOwnership, filterPayoutRowsByOwnership, filterExpensesByOwnership, calculateNetProfit } from '../utils';
 
 type ReportScope = 'profit' | 'consignment';
 
@@ -79,9 +79,9 @@ const monthlyGroupedData = computed(() => {
 
 // 3. Expenses log filtered
 const expensesData = computed(() => {
-  return props.expenses.filter(exp => {
-    return exp.date >= dateFrom.value && exp.date <= dateTo.value;
-  }).sort((a, b) => b.date.localeCompare(a.date));
+  return filterExpensesByOwnership(props.expenses, reportScope.value)
+    .filter(exp => exp.date >= dateFrom.value && exp.date <= dateTo.value)
+    .sort((a, b) => b.date.localeCompare(a.date));
 });
 
 // 4. Profit & Loss monthly report aggregation
@@ -97,21 +97,19 @@ const profitReportData = computed(() => {
     dataMap[month].cogs += tx.costOfGoodsSold;
   });
 
-  if (reportScope.value === 'profit') {
-    props.expenses.forEach(exp => {
-      const month = exp.date.substring(0, 7);
-      if (!dataMap[month]) {
-        dataMap[month] = { revenue: 0, cogs: 0, expenses: 0, netProfit: 0 };
-      }
-      dataMap[month].expenses += exp.amount;
-    });
-  }
+  filterExpensesByOwnership(props.expenses, reportScope.value).forEach(exp => {
+    const month = exp.date.substring(0, 7);
+    if (!dataMap[month]) {
+      dataMap[month] = { revenue: 0, cogs: 0, expenses: 0, netProfit: 0 };
+    }
+    dataMap[month].expenses += exp.amount;
+  });
 
   Object.keys(dataMap).forEach(month => {
     const item = dataMap[month];
     item.netProfit = reportScope.value === 'consignment'
-      ? Math.max(0, item.revenue - item.cogs)
-      : Math.max(0, item.revenue - item.cogs - item.expenses);
+      ? calculateNetProfit(item.revenue, item.cogs)
+      : calculateNetProfit(item.revenue, item.cogs, item.expenses);
   });
 
   return dataMap;
@@ -156,7 +154,7 @@ const aggregates = computed(() => {
     cogsTotal,
     expensesTotal,
     consignmentWithdrawalTotal,
-    netProfit: Math.max(0, salesTotal - cogsTotal - expensesTotal)
+    netProfit: calculateNetProfit(salesTotal, cogsTotal, expensesTotal)
   };
 });
 

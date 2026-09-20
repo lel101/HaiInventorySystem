@@ -83,6 +83,7 @@ export interface Expense {
   amount: number;
   description: string;
   date: string;
+  inventoryType?: 'owned' | 'consignment';
   receiptImage?: string; // Base64 or mock file path
   createdAt: string;
   deletedAt?: string;

@@ -17,7 +17,7 @@ import {
   EyeOff
 } from '@lucide/vue';
 import { Partner, ProfitDistributionRecord, Transaction, Expense, InvestorAccount, ConsignmentWithdrawal } from '../types';
-import { formatPHP, getConsignmentWithdrawalSummary } from '../utils';
+import { filterExpensesByOwnership, formatPHP, getConsignmentWithdrawalSummary } from '../utils';
 
 // Props & Emits
 const props = defineProps<{
@@ -91,7 +91,7 @@ const monthFinancials = computed(() => {
     }
   });
 
-  props.expenses.forEach(exp => {
+  filterExpensesByOwnership(props.expenses, 'profit').forEach(exp => {
     if (exp.date.substring(0, 7) === selectedMonth.value) {
       monthExpenses += exp.amount;
     }

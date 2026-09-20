@@ -1,6 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGuestCatalogProducts, resolveGuestCatalogPath } from '../api/app.ts';
+import { calculateNetProfit, filterExpensesByOwnership } from '../src/utils.ts';
+
+test('net profit preserves negative values when a period is operating at a loss', () => {
+  assert.equal(calculateNetProfit(4430, 2496.5, 5000), -3066.5);
+});
+
+test('expense ownership filtering separates profit-sharing and consignment costs', () => {
+  const expenses = [
+    { id: 'e1', category: 'Rent', amount: 1000, description: 'Store lease', date: '2026-09-01', createdAt: '2026-09-01T00:00:00.000Z', inventoryType: 'owned' },
+    { id: 'e2', category: 'Marketing', amount: 500, description: 'Consignment ad', date: '2026-09-02', createdAt: '2026-09-02T00:00:00.000Z', inventoryType: 'consignment' },
+    { id: 'e3', category: 'Electricity', amount: 250, description: 'Shared utility bill', date: '2026-09-03', createdAt: '2026-09-03T00:00:00.000Z' },
+  ] as any;
+
+  assert.deepEqual(filterExpensesByOwnership(expenses, 'profit').map((item) => item.id), ['e1', 'e3']);
+  assert.deepEqual(filterExpensesByOwnership(expenses, 'consignment').map((item) => item.id), ['e2']);
+});
 
 test('guest catalog includes sold-out items so they can be shown below available inventory', () => {
   const products = [

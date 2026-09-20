@@ -1,15 +1,15 @@
 {
-  "generatedAt": "2026-09-19T16:47:25.595Z",
+  "generatedAt": "2026-09-20T00:41:49.453Z",
   "products": [
     {
-      "id": "prod-c1sfrtj",
-      "sku": "OTH-JORD-434",
+      "id": "prod-z7zja04",
+      "sku": "OTH-JORD-151",
       "name": "JORDAN DEJA SANDALS",
       "category": "Footwear",
       "brand": "",
       "srpPrice": 4995,
       "storePrice": 3000,
-      "currentStock": 0,
+      "currentStock": 1,
       "image": "👟",
       "imageUrl": "https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcRh1ycbhYV4oMb0LXrOJXq0c123EcTdzBMmmdd_lmaJTYih8g",
       "shoeGender": "Women",
@@ -17,7 +17,7 @@
         36
       ],
       "sizeStocks": {
-        "36": 0
+        "36": 1
       }
     },
     {
@@ -62,8 +62,7 @@
       "srpPrice": 350,
       "storePrice": 350,
       "currentStock": 8,
-      "image": "🧢",
-      "imageUrl": "https://down-ph.img.susercontent.com/file/ph-11134207-820ld-mrk5z5ok48i021"
+      "image": "🧢"
     },
     {
       "id": "prod-4w481ni",
