@@ -6,7 +6,18 @@ import {
   FileSpreadsheet
 } from '@lucide/vue';
 import { Product, Transaction, Expense, Partner, ProfitDistributionRecord, ConsignmentWithdrawal } from '../types';
-import { formatPHP, exportToCSV, buildInventoryAssetRows, buildConsignmentWithdrawalRows, filterInventoryByOwnership, filterPayoutRowsByOwnership, filterExpensesByOwnership, calculateNetProfit } from '../utils';
+import {
+  formatPHP,
+  exportToCSV,
+  buildInventoryAssetRows,
+  buildConsignmentWithdrawalRows,
+  buildMonthlySalesSummaries,
+  buildTransactionItemSummary,
+  filterInventoryByOwnership,
+  filterPayoutRowsByOwnership,
+  filterExpensesByOwnership,
+  calculateNetProfit,
+} from '../utils';
 
 type ReportScope = 'profit' | 'consignment';
 
@@ -61,20 +72,16 @@ const dailySalesData = computed(() => {
 
 // 2. Monthly grouped sales
 const monthlyGroupedData = computed(() => {
-  const dataMap: { [key: string]: { revenue: number; cogs: number; profit: number; count: number } } = {};
-
-  scopedTransactions.value.forEach(tx => {
-    const month = tx.createdAt.substring(0, 7);
-    if (!dataMap[month]) {
-      dataMap[month] = { revenue: 0, cogs: 0, profit: 0, count: 0 };
-    }
-    dataMap[month].revenue += tx.total;
-    dataMap[month].cogs += tx.costOfGoodsSold;
-    dataMap[month].profit += tx.profit;
-    dataMap[month].count += 1;
-  });
-
-  return dataMap;
+  const summaries = buildMonthlySalesSummaries(scopedTransactions.value);
+  return Object.fromEntries(
+    summaries.map((summary) => [summary.month, {
+      revenue: summary.revenue,
+      cogs: summary.cogs,
+      profit: summary.profit,
+      count: summary.count,
+      itemSummary: summary.itemSummary,
+    }])
+  );
 });
 
 // 3. Expenses log filtered
@@ -166,12 +173,13 @@ const handleCSVExport = () => {
 
   switch (activeReport.value) {
     case 'daily':
-      headers = ['Invoice No', 'Date', 'Customer', 'Items Count', 'Subtotal', 'Discount', 'Total Paid', 'Payment Channel', 'Profit'];
+      headers = ['Invoice No', 'Date', 'Customer', 'Items Sold', 'Items Count', 'Subtotal', 'Discount', 'Total Paid', 'Payment Channel', 'Profit'];
       rows = dailySalesData.value.map(tx => [
         tx.invoiceNo,
         new Date(tx.createdAt).toLocaleDateString(),
         tx.customerName || 'Walk-in Guest',
-        tx.items.length.toString(),
+        buildTransactionItemSummary(tx.items),
+        tx.items.reduce((sum, item) => sum + item.quantity, 0).toString(),
         tx.subtotal.toFixed(2),
         tx.discountAmount.toFixed(2),
         tx.total.toFixed(2),
@@ -182,7 +190,7 @@ const handleCSVExport = () => {
       break;
 
     case 'monthly':
-      headers = ['Month Cycle', 'Total Sales Volume', 'Revenue', 'Cost of Goods Sold', 'Gross Profit'];
+      headers = ['Month Cycle', 'Total Sales Volume', 'Revenue', 'Cost of Goods Sold', 'Gross Profit', 'Items Sold'];
       rows = Object.keys(monthlyGroupedData.value).map(month => {
         const data = monthlyGroupedData.value[month];
         return [
@@ -190,7 +198,8 @@ const handleCSVExport = () => {
           data.count.toString(),
           data.revenue.toFixed(2),
           data.cogs.toFixed(2),
-          data.profit.toFixed(2)
+          data.profit.toFixed(2),
+          data.itemSummary || 'No items recorded'
         ];
       });
       filename = `Monthly_Sales_Report_${dateFrom.value}_to_${dateTo.value}`;
@@ -387,6 +396,7 @@ const handlePrint = () => {
                 <th class="p-3">Invoice No</th>
                 <th class="p-3">Date</th>
                 <th class="p-3">Customer</th>
+                <th class="p-3">Items Sold</th>
                 <th class="p-3 text-center">Items</th>
                 <th class="p-3 text-right">Subtotal</th>
                 <th class="p-3 text-right">Discounts</th>
@@ -396,12 +406,13 @@ const handlePrint = () => {
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-zinc-800/40">
               <tr v-if="dailySalesData.length === 0">
-                <td colspan="8" class="p-6 text-center text-zinc-400 font-semibold uppercase text-[10px] tracking-wider">No transactions recorded for selected dates.</td>
+                <td colspan="9" class="p-6 text-center text-zinc-400 font-semibold uppercase text-[10px] tracking-wider">No transactions recorded for selected dates.</td>
               </tr>
               <tr v-else v-for="tx in dailySalesData" :key="tx.id" class="hover:bg-zinc-50/50">
                 <td class="p-3 font-mono font-bold text-zinc-800 dark:text-zinc-200">{{ tx.invoiceNo }}</td>
                 <td class="p-3 text-zinc-500 font-semibold">{{ new Date(tx.createdAt).toLocaleDateString() }}</td>
                 <td class="p-3 font-bold text-zinc-700 dark:text-zinc-300">{{ tx.customerName || 'Walk-in Guest' }}</td>
+                <td class="p-3 font-semibold text-zinc-700 dark:text-zinc-300 max-w-[220px] break-words">{{ buildTransactionItemSummary(tx.items) || 'No item detail' }}</td>
                 <td class="p-3 text-center font-mono font-bold">{{ tx.items.reduce((sum, item) => sum + item.quantity, 0) }}</td>
                 <td class="p-3 text-right font-mono font-semibold">{{ formatPHP(tx.subtotal) }}</td>
                 <td class="p-3 text-right font-mono text-rose-500 font-bold">-{{ formatPHP(tx.discountAmount) }}</td>
@@ -420,11 +431,12 @@ const handlePrint = () => {
                 <th class="p-3 text-right">Gross Sales Volume</th>
                 <th class="p-3 text-right">Cost of Goods Sold (COGS)</th>
                 <th class="p-3 text-right">Gross Margin Yield</th>
+                <th class="p-3">Items Sold</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-zinc-800/40">
               <tr v-if="Object.keys(monthlyGroupedData).length === 0">
-                <td colspan="5" class="p-6 text-center text-zinc-400 font-semibold">No monthly data parsed.</td>
+                <td colspan="6" class="p-6 text-center text-zinc-400 font-semibold">No monthly data parsed.</td>
               </tr>
               <tr v-else v-for="month in Object.keys(monthlyGroupedData).sort((a, b) => b.localeCompare(a))" :key="month" class="hover:bg-zinc-50/50">
                 <td class="p-3 font-black text-zinc-850 dark:text-zinc-200">{{ month }}</td>
@@ -432,6 +444,7 @@ const handlePrint = () => {
                 <td class="p-3 text-right font-mono text-zinc-900 dark:text-zinc-50 font-bold">{{ formatPHP(monthlyGroupedData[month].revenue) }}</td>
                 <td class="p-3 text-right font-mono text-zinc-400 font-semibold">{{ formatPHP(monthlyGroupedData[month].cogs) }}</td>
                 <td class="p-3 text-right font-mono text-emerald-600 font-black">{{ formatPHP(monthlyGroupedData[month].profit) }}</td>
+                <td class="p-3 font-semibold text-zinc-700 dark:text-zinc-300 max-w-[260px] break-words">{{ monthlyGroupedData[month].itemSummary || 'No items recorded' }}</td>
               </tr>
             </tbody>
           </table>

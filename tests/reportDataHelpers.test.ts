@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildInventoryAssetRows, buildPartnerPayoutRows, calculateTotalInvestment, filterInventoryByOwnership, filterPayoutRowsByOwnership } from '../src/utils.ts';
+import {
+  buildInventoryAssetRows,
+  buildMonthlySalesSummaries,
+  buildPartnerPayoutRows,
+  buildTransactionItemSummary,
+  calculateTotalInvestment,
+  filterInventoryByOwnership,
+  filterPayoutRowsByOwnership,
+} from '../src/utils.ts';
 
 test('inventory asset rows calculate stock valuation correctly for report output', () => {
   const rows = buildInventoryAssetRows([
@@ -162,4 +170,52 @@ test('report scope filters inventory and payouts by ownership type', () => {
       createdAt: '2025-02-01',
     },
   ], 'consignment'), []);
+});
+
+test('daily and monthly report summaries include sold-item names', () => {
+  const transactions = [{
+    id: 'sale-1',
+    invoiceNo: 'INV-001',
+    items: [
+      {
+        productId: 'p1',
+        name: 'Classic Tee',
+        sku: 'TEE-01',
+        costPrice: 220,
+        sellingPrice: 399,
+        quantity: 2,
+        discount: 0,
+        totalPrice: 798,
+        selectedSize: 'M',
+      },
+      {
+        productId: 'p2',
+        name: 'Trail Runner',
+        sku: 'RUN-01',
+        costPrice: 1100,
+        sellingPrice: 2200,
+        quantity: 1,
+        discount: 0,
+        totalPrice: 2200,
+      },
+    ],
+    subtotal: 2998,
+    discountAmount: 0,
+    total: 2998,
+    costOfGoodsSold: 1540,
+    profit: 1458,
+    paymentMethod: 'Cash',
+    customerName: 'Jane Doe',
+    createdAt: '2025-02-15T10:30:00.000Z',
+  }] as any;
+
+  assert.equal(buildTransactionItemSummary(transactions[0].items), 'Classic Tee (M) x2, Trail Runner x1');
+  assert.deepEqual(buildMonthlySalesSummaries(transactions), [{
+    month: '2025-02',
+    revenue: 2998,
+    cogs: 1540,
+    profit: 1458,
+    count: 1,
+    itemSummary: 'Classic Tee (M) x2, Trail Runner x1',
+  }]);
 });

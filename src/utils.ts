@@ -135,6 +135,64 @@ export const buildPartnerPayoutRows = (records: ProfitDistributionRecord[]) => {
   );
 };
 
+export const buildTransactionItemSummary = (items: Transaction['items'] = []) => {
+  return items
+    .map((item) => {
+      const sizeSuffix = item.selectedSize ? ` (${item.selectedSize})` : '';
+      return `${item.name}${sizeSuffix} x${item.quantity}`;
+    })
+    .join(', ');
+};
+
+export const buildMonthlySalesSummaries = (transactions: Transaction[]) => {
+  const monthMap = new Map<string, {
+    month: string;
+    revenue: number;
+    cogs: number;
+    profit: number;
+    count: number;
+    itemMap: Map<string, number>;
+  }>();
+
+  transactions.forEach((tx) => {
+    const month = tx.createdAt.substring(0, 7);
+    const entry = monthMap.get(month) ?? {
+      month,
+      revenue: 0,
+      cogs: 0,
+      profit: 0,
+      count: 0,
+      itemMap: new Map<string, number>(),
+    };
+
+    entry.revenue += tx.total;
+    entry.cogs += tx.costOfGoodsSold;
+    entry.profit += tx.profit;
+    entry.count += 1;
+
+    tx.items.forEach((item) => {
+      const sizeSuffix = item.selectedSize ? ` (${item.selectedSize})` : '';
+      const nameKey = `${item.name}${sizeSuffix}`;
+      entry.itemMap.set(nameKey, (entry.itemMap.get(nameKey) || 0) + item.quantity);
+    });
+
+    monthMap.set(month, entry);
+  });
+
+  return [...monthMap.values()]
+    .sort((a, b) => b.month.localeCompare(a.month))
+    .map((entry) => ({
+      month: entry.month,
+      revenue: entry.revenue,
+      cogs: entry.cogs,
+      profit: entry.profit,
+      count: entry.count,
+      itemSummary: [...entry.itemMap.entries()]
+        .map(([name, quantity]) => `${name} x${quantity}`)
+        .join(', '),
+    }));
+};
+
 export const buildConsignmentWithdrawalRows = (
   withdrawals: Array<{ id?: string; month: string; amount: number; note?: string; createdAt?: string }>
 ) => {
