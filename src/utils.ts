@@ -89,6 +89,18 @@ export const getConsignmentWithdrawalSummary = ({
   };
 };
 
+export const calculateTotalInvestment = ({
+  monthlySales,
+  netProfitForCycle,
+  totalCostValuation,
+}: {
+  monthlySales: number;
+  netProfitForCycle: number;
+  totalCostValuation: number;
+}) => {
+  return Number(monthlySales || 0) - Number(netProfitForCycle || 0) + Number(totalCostValuation || 0);
+};
+
 export const buildInventoryAssetRows = (products: Product[]) => {
   return products.map((product) => ({
     id: product.id,

@@ -7,7 +7,7 @@ import {
   AlertTriangle 
 } from '@lucide/vue';
 import { Product, Transaction } from '../types';
-import { formatPHP } from '../utils';
+import { calculateTotalInvestment, formatPHP } from '../utils';
 
 // Define Props and Emits
 const props = defineProps<{
@@ -28,6 +28,7 @@ const stats = computed(() => {
   let todaySales = 0;
   let todayProfit = 0;
   let monthlySales = 0;
+  let monthlyProfit = 0;
   let todayConsignmentSales = 0;
   let todayConsignmentProfit = 0;
   let monthlyConsignmentSales = 0;
@@ -41,6 +42,7 @@ const stats = computed(() => {
     const txMonth = tx.createdAt.substring(0, 7);
     if (txMonth === currentMonthStr) {
       monthlySales += tx.total;
+      monthlyProfit += tx.profit;
     }
   });
 
@@ -58,17 +60,26 @@ const stats = computed(() => {
 
   const lowStockCount = props.products.filter(p => p.currentStock > 0 && p.currentStock <= p.minimumStock).length;
   const outOfStockCount = props.products.filter(p => p.currentStock === 0).length;
+  const totalCostValuation = props.products.reduce((sum, p) => sum + (p.currentStock * p.costPrice), 0);
   const totalConsignmentWithdrawn = (props.consignmentWithdrawals || []).reduce((sum, item) => sum + item.amount, 0);
+  const totalInvestment = calculateTotalInvestment({
+    monthlySales,
+    netProfitForCycle: monthlyProfit,
+    totalCostValuation,
+  });
 
   return {
     todaySales,
     todayProfit,
     monthlySales,
+    monthlyProfit,
     todayConsignmentSales,
     todayConsignmentProfit,
     monthlyConsignmentSales,
     lowStockCount,
     outOfStockCount,
+    totalCostValuation,
+    totalInvestment,
     totalConsignmentWithdrawn
   };
 });
@@ -336,20 +347,15 @@ const generatePolygonPoints = (
         </div>
       </div>
 
-      <!-- Inventory Alerts -->
-      <div class="bg-white dark:bg-zinc-900 p-6 border border-slate-200 dark:border-zinc-800 rounded-xl shadow-sm flex flex-col justify-between" id="stat-card-inventory">
+      <!-- Total Investment -->
+      <div class="bg-white dark:bg-zinc-900 p-6 border border-slate-200 dark:border-zinc-800 rounded-xl shadow-sm flex flex-col justify-between" id="stat-card-investment">
         <div>
-          <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1 tracking-wider">Inventory Alerts</p>
-          <p v-if="stats.outOfStockCount + stats.lowStockCount > 0" class="text-3xl font-black text-rose-600 tracking-tight font-display">
-            {{ stats.outOfStockCount + stats.lowStockCount }} Items
+          <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1 tracking-wider">Total Investment</p>
+          <p class="text-3xl font-black text-slate-900 dark:text-zinc-50 tracking-tight font-display">
+            {{ formatPHP(stats.totalInvestment) }}
           </p>
-          <p v-else class="text-3xl font-black text-emerald-600 tracking-tight font-display">
-            Healthy
-          </p>
-          <div class="mt-2 text-xs font-bold">
-            <span v-if="stats.outOfStockCount > 0" class="text-rose-500 mr-2 uppercase tracking-wide text-[10px]">{{ stats.outOfStockCount }} Out of stock</span>
-            <span v-if="stats.lowStockCount > 0" class="text-amber-500 uppercase tracking-wide text-[10px]">{{ stats.lowStockCount }} Low stock</span>
-            <span v-if="stats.outOfStockCount === 0 && stats.lowStockCount === 0" class="text-slate-400 uppercase tracking-wide text-[10px]">All items supplied</span>
+          <div class="mt-2 text-xs font-bold text-slate-500">
+            <span class="uppercase tracking-wide text-[10px]">Sales - Profit + Inventory</span>
           </div>
         </div>
       </div>
