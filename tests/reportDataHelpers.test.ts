@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildInventoryAssetRows, buildPartnerPayoutRows, filterInventoryByOwnership, filterPayoutRowsByOwnership } from '../src/utils.ts';
+import { buildInventoryAssetRows, buildPartnerPayoutRows, calculateTotalInvestment, filterInventoryByOwnership, filterPayoutRowsByOwnership } from '../src/utils.ts';
 
 test('inventory asset rows calculate stock valuation correctly for report output', () => {
   const rows = buildInventoryAssetRows([
@@ -80,6 +80,14 @@ test('stakeholder payout rows flatten monthly distributions for the payout histo
       amount: 1250,
     },
   ]);
+});
+
+test('dashboard total investment follows the configured business formula', () => {
+  assert.equal(calculateTotalInvestment({
+    monthlySales: 150000,
+    netProfitForCycle: 45000,
+    totalCostValuation: 65000,
+  }), 170000);
 });
 
 test('report scope filters inventory and payouts by ownership type', () => {
