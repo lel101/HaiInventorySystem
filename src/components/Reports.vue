@@ -17,6 +17,7 @@ import {
   filterPayoutRowsByOwnership,
   filterExpensesByOwnership,
   calculateNetProfit,
+  getTransactionSellerPayout,
 } from '../utils';
 
 type ReportScope = 'profit' | 'consignment';
@@ -141,12 +142,14 @@ const aggregates = computed(() => {
   let profitTotal = 0;
   let cogsTotal = 0;
   let expensesTotal = 0;
+  let sellerPayoutTotal = 0;
   let consignmentWithdrawalTotal = 0;
 
   dailySalesData.value.forEach(tx => {
     salesTotal += tx.total;
     profitTotal += tx.profit;
     cogsTotal += tx.costOfGoodsSold;
+    sellerPayoutTotal += Math.max(0, getTransactionSellerPayout(tx) - tx.subtotal);
   });
 
   expensesData.value.forEach(exp => {
@@ -159,8 +162,7 @@ const aggregates = computed(() => {
     salesTotal,
     profitTotal,
     cogsTotal,
-    expensesTotal,
-    consignmentWithdrawalTotal,
+    expensesTotal,    sellerPayoutTotal,    consignmentWithdrawalTotal,
     netProfit: calculateNetProfit(salesTotal, cogsTotal, expensesTotal)
   };
 });
@@ -173,7 +175,7 @@ const handleCSVExport = () => {
 
   switch (activeReport.value) {
     case 'daily':
-      headers = ['Invoice No', 'Date', 'Customer', 'Items Sold', 'Items Count', 'Subtotal', 'Discount', 'Total Paid', 'Payment Channel', 'Profit'];
+      headers = ['Invoice No', 'Date', 'Customer', 'Items Sold', 'Items Count', 'Subtotal', 'Discount', 'Total Paid', 'Seller Remit to Us', 'Seller Pay', 'Payment Channel', 'Profit'];
       rows = dailySalesData.value.map(tx => [
         tx.invoiceNo,
         new Date(tx.createdAt).toLocaleDateString(),
@@ -183,6 +185,8 @@ const handleCSVExport = () => {
         tx.subtotal.toFixed(2),
         tx.discountAmount.toFixed(2),
         tx.total.toFixed(2),
+        getTransactionSellerPayout(tx).toFixed(2),
+        Math.max(0, getTransactionSellerPayout(tx) - tx.subtotal).toFixed(2),
         tx.paymentMethod,
         tx.profit.toFixed(2)
       ]);
@@ -401,12 +405,13 @@ const handlePrint = () => {
                 <th class="p-3 text-right">Subtotal</th>
                 <th class="p-3 text-right">Discounts</th>
                 <th class="p-3 text-right">Total Paid</th>
+                <th class="p-3 text-right">Seller Remit to Us</th>
                 <th class="p-3 text-right">Margins</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-zinc-800/40">
               <tr v-if="dailySalesData.length === 0">
-                <td colspan="9" class="p-6 text-center text-zinc-400 font-semibold uppercase text-[10px] tracking-wider">No transactions recorded for selected dates.</td>
+                <td colspan="11" class="p-6 text-center text-zinc-400 font-semibold uppercase text-[10px] tracking-wider">No transactions recorded for selected dates.</td>
               </tr>
               <tr v-else v-for="tx in dailySalesData" :key="tx.id" class="hover:bg-zinc-50/50">
                 <td class="p-3 font-mono font-bold text-zinc-800 dark:text-zinc-200">{{ tx.invoiceNo }}</td>
@@ -417,6 +422,8 @@ const handlePrint = () => {
                 <td class="p-3 text-right font-mono font-semibold">{{ formatPHP(tx.subtotal) }}</td>
                 <td class="p-3 text-right font-mono text-rose-500 font-bold">-{{ formatPHP(tx.discountAmount) }}</td>
                 <td class="p-3 text-right font-mono font-black text-zinc-900 dark:text-zinc-50">{{ formatPHP(tx.total) }}</td>
+                <td class="p-3 text-right font-mono font-black text-amber-600 dark:text-amber-400">{{ formatPHP(getTransactionSellerPayout(tx)) }}</td>
+                <td class="p-3 text-right font-mono font-black text-rose-600 dark:text-rose-400">{{ formatPHP(Math.max(0, tx.subtotal - getTransactionSellerPayout(tx))) }}</td>
                 <td class="p-3 text-right font-mono text-emerald-600 font-black">+{{ formatPHP(tx.profit) }}</td>
               </tr>
             </tbody>
@@ -581,6 +588,11 @@ const handlePrint = () => {
               <div>
                 <span class="text-[10px] text-zinc-400 font-bold block uppercase tracking-wider mb-0.5">Period Expenses</span>
                 <span class="font-bold font-mono text-rose-300">-{{ formatPHP(aggregates.expensesTotal) }}</span>
+              </div>
+
+              <div>
+                <span class="text-[10px] text-amber-300 font-bold block uppercase tracking-wider mb-0.5">Total Seller Pay</span>
+                <span class="font-bold font-mono text-amber-300">{{ formatPHP(aggregates.sellerPayoutTotal) }}</span>
               </div>
 
               <div class="border-l border-zinc-700 pl-4">

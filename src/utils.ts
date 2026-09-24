@@ -135,6 +135,20 @@ export const buildPartnerPayoutRows = (records: ProfitDistributionRecord[]) => {
   );
 };
 
+export const getTransactionSellerPayout = (transaction: Partial<Transaction> | null | undefined) => {
+  if (!transaction) return 0;
+
+  const explicitAmount = transaction.sellerPayoutAmount;
+  const fallbackAmount = transaction.total ?? 0;
+
+  if (explicitAmount != null && Number(explicitAmount) > 0) {
+    return Number(explicitAmount);
+  }
+
+  const amount = Number(fallbackAmount);
+  return Number.isFinite(amount) ? amount : 0;
+};
+
 export const buildTransactionItemSummary = (items: Transaction['items'] = []) => {
   return items
     .map((item) => {

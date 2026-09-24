@@ -22,7 +22,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'checkout', items: CartItem[], paymentMethod: PaymentMethod, discountPercent: number, customerName?: string): void;
+  (e: 'checkout', items: CartItem[], paymentMethod: PaymentMethod, discountPercent: number, customerName?: string, sellerPayoutAmount?: number): void;
   (e: 'add-toast', title: string, message: string, type: 'success' | 'error'): void;
 }>();
 
@@ -35,7 +35,7 @@ const cart = ref<CartItem[]>([]);
 const customerName = ref('');
 const transactionDiscount = ref<number>(0);
 const paymentMethod = ref<PaymentMethod>('Cash');
-const cashAmountPaid = ref<string>('');
+const sellerPayoutAmount = ref<string>('');
 const paymentMethods: PaymentMethod[] = ['Cash', 'GCash', 'Maya', 'Bank Transfer'];
 const sizePickerProduct = ref<Product | null>(null);
 const pendingConfirmation = ref<{
@@ -140,7 +140,7 @@ const handleClearCart = () => {
   cart.value = [];
   customerName.value = '';
   transactionDiscount.value = 0;
-  cashAmountPaid.value = '';
+  sellerPayoutAmount.value = '';
 };
 
 // Cart Calculations
@@ -183,32 +183,35 @@ const handleCheckoutSubmit = () => {
     return;
   }
 
-  if (paymentMethod.value === 'Cash' && cashAmountPaid.value !== '') {
-    const paid = Number(cashAmountPaid.value);
-    if (paid < totals.value.total) {
-      emit('add-toast', 'Insufficient Cash', `Cash paid (${formatPHP(paid)}) is less than total amount due (${formatPHP(totals.value.total)}).`, 'error');
-      return;
-    }
+  if (sellerPayoutAmount.value === '' || Number(sellerPayoutAmount.value) <= 0) {
+    emit('add-toast', 'Seller Remit Required', 'Please enter the seller remittance amount before checkout.', 'error');
+    return;
+  }
+
+  if (Number(sellerPayoutAmount.value) < totals.value.total) {
+    emit('add-toast', 'Seller Remit Too Low', `Seller remit (${formatPHP(Number(sellerPayoutAmount.value))}) cannot be below the sale subtotal (${formatPHP(totals.value.total)}).`, 'error');
+    return;
   }
 
   pendingConfirmation.value = {
     title: 'Confirm POS checkout',
-    message: `Finalize sale for ${cart.value.length} item(s) totaling ${formatPHP(totals.value.total)}?`,
+    message: `Finalize sale for ${cart.value.length} item(s) totaling ${formatPHP(totals.value.total)} with seller remit of ${formatPHP(Number(sellerPayoutAmount.value))}?`,
     confirmText: 'Confirm Checkout',
     onConfirm: () => {
-      emit('checkout', cart.value, paymentMethod.value, transactionDiscount.value, customerName.value.trim() || undefined);
+      emit(
+        'checkout',
+        cart.value,
+        paymentMethod.value,
+        transactionDiscount.value,
+        customerName.value.trim() || undefined,
+        sellerPayoutAmount.value !== '' ? Number(sellerPayoutAmount.value) || 0 : undefined,
+      );
       handleClearCart();
       pendingConfirmation.value = null;
     }
   };
 };
 
-// Cash Change Calculation
-const changeDue = computed(() => {
-  if (paymentMethod.value !== 'Cash' || !cashAmountPaid.value) return 0;
-  const paid = Number(cashAmountPaid.value);
-  return Math.max(0, paid - totals.value.total);
-});
 </script>
 
 <template>
@@ -441,17 +444,14 @@ const changeDue = computed(() => {
         <!-- Cash Payment Helper -->
         <div v-if="paymentMethod === 'Cash'" class="p-3 bg-slate-50 dark:bg-zinc-850 rounded-lg space-y-2 text-xs border border-slate-100 dark:border-zinc-800">
           <div class="flex justify-between items-center">
-            <span class="font-bold uppercase tracking-wider text-[10px] text-slate-500">Cash Received (PHP)</span>
+            <span class="font-bold uppercase tracking-wider text-[10px] text-slate-500">Seller Remit to Us (PHP)</span>
             <input
               type="number"
               placeholder="₱0.00"
-              v-model="cashAmountPaid"
+              v-model="sellerPayoutAmount"
+              required
               class="w-28 p-1 text-right bg-white dark:bg-zinc-900 border border-slate-250 dark:border-zinc-700 rounded-md font-mono font-bold text-zinc-850"
             />
-          </div>
-          <div v-if="cashAmountPaid" class="flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-bold">
-            <span class="font-bold uppercase tracking-wider text-[10px]">Change Due</span>
-            <span class="font-mono text-sm font-black">{{ formatPHP(changeDue) }}</span>
           </div>
         </div>
 

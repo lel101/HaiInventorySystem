@@ -8,6 +8,7 @@ import {
   calculateTotalInvestment,
   filterInventoryByOwnership,
   filterPayoutRowsByOwnership,
+  getTransactionSellerPayout,
 } from '../src/utils.ts';
 
 test('inventory asset rows calculate stock valuation correctly for report output', () => {
@@ -218,4 +219,23 @@ test('daily and monthly report summaries include sold-item names', () => {
     count: 1,
     itemSummary: 'Classic Tee (M) x2, Trail Runner x1',
   }]);
+});
+
+test('seller payout tracking keeps the recorded amount separate from the internal sale total', () => {
+  const transaction = {
+    id: 'sale-2',
+    invoiceNo: 'INV-002',
+    items: [],
+    subtotal: 1950,
+    discountAmount: 0,
+    total: 1950,
+    sellerPayoutAmount: 2100,
+    costOfGoodsSold: 1200,
+    profit: 750,
+    paymentMethod: 'Cash',
+    createdAt: '2025-02-16T10:30:00.000Z',
+  } as any;
+
+  assert.equal(getTransactionSellerPayout(transaction), 2100);
+  assert.equal(getTransactionSellerPayout({ total: 1950, sellerPayoutAmount: 0 } as any), 1950);
 });

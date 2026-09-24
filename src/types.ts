@@ -50,6 +50,7 @@ export interface CartItem {
   quantity: number;
   discount: number; // percentage or fixed amount, let's treat as percentage
   selectedSize?: string;
+  sellerPayoutAmount?: number;
 }
 
 export interface Transaction {
@@ -61,6 +62,7 @@ export interface Transaction {
     sku: string;
     costPrice: number;
     sellingPrice: number;
+    sellerPayoutAmount?: number;
     quantity: number;
     discount: number; // percentage
     totalPrice: number;
@@ -70,6 +72,7 @@ export interface Transaction {
   subtotal: number;
   discountAmount: number;
   total: number;
+  sellerPayoutAmount?: number;
   costOfGoodsSold: number;
   profit: number;
   paymentMethod: PaymentMethod;
