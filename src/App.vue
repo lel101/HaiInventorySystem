@@ -721,7 +721,8 @@ const handleCheckout = (
   cartItems: CartItem[], 
   paymentMethod: PaymentMethod, 
   discountPercent: number, 
-  customerName?: string
+  customerName?: string,
+  sellerPayoutAmountValue?: number
 ) => {
   // Generate Invoice Number
   const invoiceNo = `INV-2026-${String(transactions.value.length + 1).padStart(4, '0')}`;
@@ -744,6 +745,7 @@ const handleCheckout = (
       sku: item.product.sku,
       costPrice: item.product.costPrice,
       sellingPrice: item.product.sellingPrice,
+      sellerPayoutAmount: item.sellerPayoutAmount ?? item.product.sellingPrice,
       quantity: item.quantity,
       discount: item.discount,
       totalPrice: originalPrice - discountAmount,
@@ -757,6 +759,9 @@ const handleCheckout = (
   const totalDiscount = itemDiscountsTotal + globalDiscountAmount;
   const total = Math.max(0, subtotal - totalDiscount);
   const profit = Math.max(0, total - costOfGoodsSold);
+  const sellerPayoutAmount = sellerPayoutAmountValue != null && Number(sellerPayoutAmountValue) > 0
+    ? Number(sellerPayoutAmountValue)
+    : total;
 
   const transaction: Transaction = {
     id: `tx-${Math.random().toString(36).substring(2, 9)}`,
@@ -765,6 +770,7 @@ const handleCheckout = (
     subtotal,
     discountAmount: totalDiscount,
     total,
+    sellerPayoutAmount,
     costOfGoodsSold,
     profit,
     paymentMethod,
