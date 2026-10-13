@@ -423,7 +423,7 @@ const handlePrint = () => {
                 <td class="p-3 text-right font-mono text-rose-500 font-bold">-{{ formatPHP(tx.discountAmount) }}</td>
                 <td class="p-3 text-right font-mono font-black text-zinc-900 dark:text-zinc-50">{{ formatPHP(tx.total) }}</td>
                 <td class="p-3 text-right font-mono font-black text-amber-600 dark:text-amber-400">{{ formatPHP(getTransactionSellerPayout(tx)) }}</td>
-                <td class="p-3 text-right font-mono font-black text-rose-600 dark:text-rose-400">{{ formatPHP(Math.max(0, tx.subtotal - getTransactionSellerPayout(tx))) }}</td>
+                <td class="p-3 text-right font-mono font-black text-rose-600 dark:text-rose-400">{{ formatPHP(Math.max(0, getTransactionSellerPayout(tx) - tx.subtotal)) }}</td>
                 <td class="p-3 text-right font-mono text-emerald-600 font-black">+{{ formatPHP(tx.profit) }}</td>
               </tr>
             </tbody>
