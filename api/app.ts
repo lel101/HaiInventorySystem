@@ -324,6 +324,7 @@ const loadRelationalState = async (client: PoolClient): Promise<PersistedAppStat
       subtotal: toNumber(row.subtotal),
       discountAmount: toNumber(row.discount_amount),
       total: toNumber(row.total),
+      sellerPayoutAmount: toNumber(row.seller_payout_amount),
       costOfGoodsSold: toNumber(row.cost_of_goods_sold),
       profit: toNumber(row.profit),
       paymentMethod: row.payment_method,
@@ -444,15 +445,16 @@ const replaceRelationalState = async (client: PoolClient, state: PersistedAppSta
     for (const transaction of state.transactions || []) {
       await client.query(
         `insert into transactions (
-          id, invoice_no, subtotal, discount_amount, total, cost_of_goods_sold,
+          id, invoice_no, subtotal, discount_amount, total, seller_payout_amount, cost_of_goods_sold,
           profit, payment_method, customer_name, created_at
-        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           transaction.id,
           transaction.invoiceNo,
           transaction.subtotal,
           transaction.discountAmount,
           transaction.total,
+          transaction.sellerPayoutAmount ?? transaction.total,
           transaction.costOfGoodsSold,
           transaction.profit,
           transaction.paymentMethod,
